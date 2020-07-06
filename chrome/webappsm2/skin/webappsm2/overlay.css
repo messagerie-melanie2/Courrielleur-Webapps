@@ -1,0 +1,20 @@
+.webtab > image {
+  width: 16px;
+  height: 16px;
+}
+
+.webtab > label {
+  display: none;
+}
+
+#webapptabs-roundcube {
+	list-style-image: url("https://melanie2web.s2.m2.e2.rie.gouv.fr/skins/larry/images/favicon.ico");
+}
+
+#webapptabs-pegase {
+	list-style-image: url("https://pegase.din.developpement-durable.gouv.fr/favicon.ico");
+}
+
+#webapptabs-ariane {
+	list-style-image: url("https://melanie2web.din.developpement-durable.gouv.fr/plugins/rocket_chat/images/favicon.png");
+}

@@ -1,0 +1,6 @@
+content   webappsm2    webappsm2/content/webappsm2/
+skin      webappsm2    classic/1.0     webappsm2/skin/webappsm2/
+
+overlay chrome://messenger/content/messenger.xul chrome://webappsm2/content/overlay.xul
+style chrome://messenger/content/messenger.xul chrome://webappsm2/skin/overlay.css
+resource webapptabs resource://gre/ contentaccessible=yes

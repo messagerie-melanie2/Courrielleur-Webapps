@@ -1,0 +1,12 @@
+<!ENTITY back.label       "Retour">
+<!ENTITY forward.label    "Avancer">
+<!ENTITY createfilter.label    "Créer un filtre sur le serveur">
+
+<!ENTITY roundcube.label    "Mon compte">
+<!ENTITY pegase.label    "Pégase">
+<!ENTITY ariane.label    "Ariane">
+
+<!ENTITY newpoll.label    "Nouveau sondage...">
+<!ENTITY sharecalendar.label    "Partager un agenda">
+<!ENTITY sharetaskslist.label    "Partager une liste de tâches">
+<!ENTITY shareaddressbook.label    "Partager un carnet d'adresses">

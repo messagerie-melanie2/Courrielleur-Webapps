@@ -1,0 +1,3 @@
+component {bd71af62-1b21-4f3a-829e-5254ec7da7f6} nsContentPolicy.js
+contract @fractalbrew.com/webapptabs/content-policy;1 {bd71af62-1b21-4f3a-829e-5254ec7da7f6}
+category content-policy webapptabs-content-policy @fractalbrew.com/webapptabs/content-policy;1

@@ -1,0 +1,23 @@
+row {
+  -moz-box-align: center;
+}
+
+richlistitem {
+  -moz-box-align: center;
+  border-bottom: 1px dotted grey;
+  border-top: 2px solid transparent;
+}
+
+.webapp-icon {
+  width: 16px;
+  height: 16px;
+  margin: 5px;
+}
+
+richlistitem[dragpos=before] {
+  border-top: 2px solid black;
+}
+
+richlistitem[dragpos=after] {
+  border-bottom: 2px solid black;
+}
