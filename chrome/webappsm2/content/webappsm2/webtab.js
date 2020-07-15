@@ -277,19 +277,20 @@ var webtabs = {
 
   openWebApp: function(aDesc, aURL) {
 	// MANTIS 0005159: Proposer d'ouvrir Ariane dans le navigateur plutôt que dans le Courrielleur
-	if (this.callPopupResult(aDesc)) {
-		if (!aURL) {
-			aURL = aDesc.href;
-		}
-		var ioservice = Components.classes["@mozilla.org/network/io-service;1"]
-        	.getService(Components.interfaces.nsIIOService);
-		uri = ioservice.newURI(aURL, null, null);
-		// Open URL in user's default browser.
-	    var extps = Components.classes["@mozilla.org/uriloader/external-protocol-service;1"]
-	        .getService(Components.interfaces.nsIExternalProtocolService);
-	    extps.loadURI(uri, null);
-	    return;
-	}
+    
+    if (this.callPopupResult(aDesc)) {
+      if (!aURL) {
+        aURL = aDesc.href;
+      }
+      var ioservice = Components.classes["@mozilla.org/network/io-service;1"]
+            .getService(Components.interfaces.nsIIOService);
+      uri = ioservice.newURI(aURL, null, null);
+      // Open URL in user's default browser.
+        var extps = Components.classes["@mozilla.org/uriloader/external-protocol-service;1"]
+            .getService(Components.interfaces.nsIExternalProtocolService);
+        extps.loadURI(uri, null);
+        return;
+    }
     let tabmail = document.getElementById('tabmail');
 
     let info = this.getTabInfoForWebApp(aDesc);
@@ -316,6 +317,8 @@ var webtabs = {
         clickHandler: "return true;"
       });
     }
+    // 0005824: Focus onglet pegase si ouverture en arrière plan
+    window.focus();
   },
   // PAMELA - Ouvrir un pop up avant d'afficher la page web
   callPopupResult: function(aDesc) {
