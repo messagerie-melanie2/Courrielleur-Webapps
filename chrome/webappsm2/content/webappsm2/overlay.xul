@@ -79,10 +79,10 @@
               id="webapptabs-pegase" label="&pegase.label;"
               class="menuitem-iconic"
               insertbefore="menu_openSavedFilesWnd"/>
-    <menuitem xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+    <!--#6169<menuitem xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
               id="webapptabs-ariane" label="&ariane.label;"
               class="menuitem-iconic"
-              insertbefore="menu_openSavedFilesWnd"/>
+              insertbefore="menu_openSavedFilesWnd"/>-->
     <menuseparator id="devToolsSeparator" insertbefore="menu_openSavedFilesWnd"/>
   </menupopup>
 </overlay>
