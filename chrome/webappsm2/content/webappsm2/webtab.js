@@ -99,8 +99,8 @@ var webtabs = {
     this.roundcubeButton.addEventListener("command", this, false);
     this.pegaseButton = document.getElementById("webapptabs-pegase")
     this.pegaseButton.addEventListener("command", this, false);
-    this.arianeButton = document.getElementById("webapptabs-ariane")
-    this.arianeButton.addEventListener("command", this, false);
+    //this.arianeButton = document.getElementById("webapptabs-ariane")
+    //this.arianeButton.addEventListener("command", this, false);
     this.newPollButton = document.getElementById("webapptabs-new-poll")
     this.newPollButton.addEventListener("command", this, false);
     this.shareCalendarButton = document.getElementById("webapptabs-share-calendar")
