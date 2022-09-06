@@ -420,9 +420,9 @@ var webtabs = {
       }
       
       //cas uid partage
-      var p = usermdp["user"].indexOf(".-.");
-      if (-1 != p) {
-        usermdp["user"] = usermdp["user"].substring(0, p);
+      var compos=SplitUserBalp(usermdp["user"]);
+      if (compos && 2==compos.length) {
+        usermdp["user"] = compos[0];
       }
       var encodeur = Components.classes["@mozilla.org/intl/texttosuburi;1"]
         .getService(Components.interfaces.nsITextToSubURI);
