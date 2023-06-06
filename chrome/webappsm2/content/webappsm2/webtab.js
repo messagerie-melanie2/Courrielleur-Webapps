@@ -99,8 +99,8 @@ var webtabs = {
     this.roundcubeButton.addEventListener("command", this, false);
     this.pegaseButton = document.getElementById("webapptabs-pegase")
     this.pegaseButton.addEventListener("command", this, false);
-    this.arianeButton = document.getElementById("webapptabs-ariane")
-    this.arianeButton.addEventListener("command", this, false);
+    //this.arianeButton = document.getElementById("webapptabs-ariane")
+    //this.arianeButton.addEventListener("command", this, false);
     this.newPollButton = document.getElementById("webapptabs-new-poll")
     this.newPollButton.addEventListener("command", this, false);
     this.shareCalendarButton = document.getElementById("webapptabs-share-calendar")
@@ -420,9 +420,9 @@ var webtabs = {
       }
 
       //cas uid partage
-      var compos=SplitUserBalp(usermdp["user"]);
-      if (compos && 2==compos.length) {
-        usermdp["user"] = compos[0];
+      var p = usermdp["user"].indexOf(".-.");
+      if (-1 != p) {
+        usermdp["user"] = usermdp["user"].substring(0, p);
       }
       var encodeur = Components.classes["@mozilla.org/intl/texttosuburi;1"]
         .getService(Components.interfaces.nsITextToSubURI);
