@@ -5,7 +5,7 @@
  * 1.1 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
  * http://www.mozilla.org/MPL/
- * 
+ *
  * Software distributed under the License is distributed on an "AS IS" basis,
  * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
  * for the specific language governing rights and limitations under the
@@ -31,7 +31,7 @@
  * and other provisions required by the GPL or the LGPL. If you do not delete
  * the provisions above, a recipient may use your version of this file under
  * the terms of any one of the MPL, the GPL or the LGPL.
- * 
+ *
  * ***** END LICENSE BLOCK ***** */
 
 const EXPORTED_SYMBOLS = ["ConfigManager"];
@@ -89,10 +89,10 @@ const DEFAULT_WEBAPPS = [{
   'login_page': 'https://mce.sso.gendarmerie.fr/?_task=login&_courrielleur=1',
   'login_params': '_user=%%username%%&_pass=%%password%%&_task=login&_action=login&_keeplogin=1',
   'request_type': 'POST',
-  'default_url': 'https://mce.sso.gendarmerie.fr/?_task=settings&_action=plugin.mel_moncompte&_courrielleur=1',
+  'default_url': 'https://mce.sso.gendarmerie.fr/?_task=settings',
   'url': {
     'createFilter': 'https://mce.sso.gendarmerie.fr/?_task=settings&_action=plugin.managesieve&_courrielleur=1',
-    'shareCalendar': 'https://mce.sso.gendarmerie.fr/?_task=settings&_action=plugin.mel_resources_agendas&_courrielleur=1',
+    'shareCalendar': 'https://mce.sso.gendarmerie.fr/?_task=settings&_action=plugin.mel_resources_agendas',
     'shareTaskslist': 'https://mce.sso.gendarmerie.fr/?_task=settings&_action=plugin.mel_resources_tasks&_courrielleur=1',
     'shareAddressbook': 'https://mce.sso.gendarmerie.fr/?_task=settings&_action=plugin.mel_resources_contacts&_courrielleur=1',
   },
