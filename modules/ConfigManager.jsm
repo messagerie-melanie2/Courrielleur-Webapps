@@ -85,7 +85,7 @@ const DEFAULT_WEBAPPS = [{
   'login': true,
   'autologin': true,
   'login_page': 'https://mceweb2.si.minint.fr/?_task=login&_courrielleur=1',
-  'login_params': '_user=%%username%%&_pass=%%password%%&_task=login&_action=login&_keeplogin=1',
+  'login_params': '_user=%%username%%&_pass=%%password%%&_task=login&_action=login&_keeplogin=1&_timezone=%%timezone%%',
   'request_type': 'POST',
   'default_url': 'https://mceweb2.si.minint.fr/?_task=settings&_action=plugin.mel_moncompte&_courrielleur=1',
   'url': {
