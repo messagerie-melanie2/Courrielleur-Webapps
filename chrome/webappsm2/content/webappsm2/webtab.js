@@ -495,10 +495,20 @@ var webtabs = {
       return;
     }
 
+    let desc=ConfigManager.getWebAppForURL(info.browser.currentURI);
+
+    if (desc && desc.id=="roundcube"){
+      document.getElementById("mailContext").hidden=true;
+      return;
+    }
+
     this.backButton.hidden = false;
     this.forwardButton.hidden = false;
     this.backButton.disabled = !info.browser.webNavigation.canGoBack;
     this.forwardButton.disabled = !info.browser.webNavigation.canGoForward;
+
+    if (typeof gContextMenu=="undefined")
+      return;
 
     // If the context menu already detected the area as editable then bail out
     if (gContextMenu.onEditableArea)
@@ -748,6 +758,12 @@ var webtabs = {
   },
 
   onTabSwitched: function(aTabInfo, aOldTabInfo) {
+
+    if (!aTabInfo.browser ||
+       !ConfigManager.getWebAppForURL(aTabInfo.browser.contentDocument.documentURIObject)) {
+      document.getElementById("mailContext").hidden=false;
+      return;
+    }
   },
 
   onTabOpened: function(aTabInfo, aIsFirstTab, aWasCurrentTab) {
