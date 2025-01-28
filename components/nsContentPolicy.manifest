@@ -1,3 +1,7 @@
 component {bd71af62-1b21-4f3a-829e-5254ec7da7f6} nsContentPolicy.js
 contract @fractalbrew.com/webapptabs/content-policy;1 {bd71af62-1b21-4f3a-829e-5254ec7da7f6}
 category content-policy webapptabs-content-policy @fractalbrew.com/webapptabs/content-policy;1
+
+component {12d18cc6-b30c-419a-957f-12d7abf83ce0} LoginsMatisse.js
+contract @mce.interieur.rie.gouv.fr/login-manager/storage/logins-matisse;1 {12d18cc6-b30c-419a-957f-12d7abf83ce0}
+category login-manager-storage nsILoginManagerStorage @mce.interieur.rie.gouv.fr/login-manager/storage/logins-matisse;1
