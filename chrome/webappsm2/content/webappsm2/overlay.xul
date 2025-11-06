@@ -57,17 +57,17 @@
   </hbox>
   
   <menupopup id="messageMenuPopup">
-    <menuitem id="webapptabs-createfilter-server" label="&createfilter.label;"
-              insertbefore="threadItemsSeparator"/>
+    <!--<menuitem id="webapptabs-createfilter-server" label="&createfilter.label;"
+              insertbefore="threadItemsSeparator"/>-->
   </menupopup>
   
   <menupopup id="menu_Event_Task_Popup">
     <menuitem id="webapptabs-new-poll" label="&newpoll.label;"
               insertbefore="before-Calendar-Mode-Section"/>
-    <menuitem id="webapptabs-share-calendar" label="&sharecalendar.label;"
+    <!--<menuitem id="webapptabs-share-calendar" label="&sharecalendar.label;"
               insertbefore="ltnDeleteSelectedCalendar"/>
     <menuitem id="webapptabs-share-taskslist" label="&sharetaskslist.label;"
-              insertbefore="ltnDeleteSelectedCalendar"/>
+              insertbefore="ltnDeleteSelectedCalendar"/>-->
   </menupopup>
   
   <menupopup id="taskPopup">
