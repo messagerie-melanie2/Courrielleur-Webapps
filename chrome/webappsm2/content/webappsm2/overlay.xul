@@ -71,10 +71,10 @@
   </menupopup>
   
   <menupopup id="taskPopup">
-    <menuitem xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul" 
+    <!--<menuitem xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul" 
               id="webapptabs-roundcube" label="&roundcube.label;"
               class="menuitem-iconic"
-              insertbefore="menu_openSavedFilesWnd"/>
+              insertbefore="menu_openSavedFilesWnd"/>-->
     <menuitem xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
               id="webapptabs-pegase" label="&pegase.label;"
               class="menuitem-iconic"
