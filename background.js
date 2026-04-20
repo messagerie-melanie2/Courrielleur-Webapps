@@ -26,22 +26,29 @@ const PEGASE = {
 // -----------------------------------------------------------------------
 async function loginPegase(creds) {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Paris";
+  console.log("[WebApp] loginPegase: user=", creds.user, "timezone=", timezone);
+  console.log("[WebApp] loginPegase: target URL=", PEGASE.external_login_url);
 
   let params = PEGASE.login_params
     .replace(/%%username%%/g, encodeURIComponent(creds.user))
     .replace(/%%password%%/g, encodeURIComponent(creds.password))
     .replace(/%%timezone%%/g, encodeURIComponent(timezone));
 
+  // Log sans le mot de passe
+  console.log("[WebApp] loginPegase: params (mdp masqué)=",
+    params.replace(/password=[^&]*/i, "password=***"));
+
   try {
-    await fetch(PEGASE.external_login_url, {
+    const response = await fetch(PEGASE.external_login_url, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params,
     });
-    console.log("[WebApp] loginPegase: login POST effectué");
+    console.log("[WebApp] loginPegase: réponse HTTP", response.status, response.statusText);
+    console.log("[WebApp] loginPegase: URL finale après redirections:", response.url);
   } catch (e) {
-    console.warn("[WebApp] loginPegase: erreur lors du POST de login:", e);
+    console.warn("[WebApp] loginPegase: erreur fetch:", e.message || e);
     // On continue quand même — l'onglet s'ouvrira, Pégase demandera le login si besoin
   }
 }
@@ -53,7 +60,15 @@ async function openPegase() {
   console.log("[WebApp] openPegase: démarrage");
 
   // Récupérer les credentials via l'Experiment API (contexte chrome)
-  const creds = await browser.webappApi.getCredentials();
+  let creds;
+  try {
+    creds = await browser.webappApi.getCredentials();
+    console.log("[WebApp] openPegase: getCredentials() →",
+      creds ? `user=${creds.user}, password=${creds.password ? "(ok)" : "(vide)"}` : "null");
+  } catch (e) {
+    console.error("[WebApp] openPegase: getCredentials() a levé une exception:", e.message || e);
+    creds = null;
+  }
 
   if (creds) {
     await loginPegase(creds);
@@ -62,7 +77,9 @@ async function openPegase() {
   }
 
   // Ouvrir ou donner le focus à l'onglet Pégase
+  console.log("[WebApp] openPegase: appel openOrFocusTab vers", PEGASE.href);
   await browser.webappApi.openOrFocusTab(PEGASE.href, PEGASE.href);
+  console.log("[WebApp] openPegase: terminé");
 }
 
 // -----------------------------------------------------------------------
@@ -70,6 +87,8 @@ async function openPegase() {
 // -----------------------------------------------------------------------
 async function createSpaceButton() {
   try {
+    // TB 140 : spaces.create avec une URL ouvre l'onglet automatiquement au clic.
+    // spaces.onClicked n'existe pas dans cette version → on intercepte via tabs.onUpdated.
     const space = await browser.spaces.create("Pegase", PEGASE.href, {
       title: PEGASE.name,
       defaultIcons: {
@@ -77,11 +96,12 @@ async function createSpaceButton() {
         "32": "skin/images/bar-graph.png",
       },
     });
-    console.log("[WebApp] Bouton Pégase créé dans la SpacesToolbar, space.id:", space.id);
+    console.log("[WebApp] Bouton Pégase créé, space.id:", space.id, "space.name:", space.name);
   } catch (e) {
-    // Si le space existe déjà (ex: rechargement extension), on ignore l'erreur
     if (!e.message?.includes("already")) {
       console.error("[WebApp] Erreur création bouton SpacesToolbar:", e);
+    } else {
+      console.log("[WebApp] Space Pegase déjà existant (rechargement extension)");
     }
   }
 }
@@ -124,14 +144,41 @@ browser.runtime.onInstalled.addListener(() => {
 });
 
 // -----------------------------------------------------------------------
-// Écouter les clics sur le bouton de la SpacesToolbar
-// Thunderbird émet spaces.onClicked quand l'utilisateur clique sur
-// un bouton créé par browser.spaces.create()
+// Interception de la page de login Pégase (équivalent du _loadHandler legacy)
+//
+// TB 140 ne dispose pas de spaces.onClicked. Quand l'utilisateur clique sur
+// le bouton Pégase, TB ouvre un onglet vers PEGASE.href. Si la session est
+// expirée, Pégase redirige vers sa page de login (?_p=login). On détecte
+// ce chargement via tabs.onUpdated et on effectue le login POST silencieux,
+// exactement comme le faisait _loadHandler dans webtab.js (extension legacy TB 60).
 // -----------------------------------------------------------------------
-if (browser.spaces?.onClicked) {
-  browser.spaces.onClicked.addListener((space, tab) => {
-    if (space.name === "Pegase") {
-      openPegase();
-    }
-  });
-}
+console.log("[WebApp] Enregistrement du listener tabs.onUpdated pour login automatique Pégase");
+
+browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  // On ne réagit qu'aux changements d'URL confirmés
+  if (!changeInfo.url) return;
+
+  const url = changeInfo.url;
+  console.log("[WebApp] tabs.onUpdated tabId:", tabId, "url:", url);
+
+  // Détecter la page de login Pégase
+  if (!url.startsWith("https://pegase.din.developpement-durable.gouv.fr")) return;
+  if (!url.includes("_p=login")) return;
+
+  console.log("[WebApp] Page de login Pégase détectée sur tabId:", tabId, "→ login automatique");
+
+  const creds = await browser.webappApi.getCredentials();
+  console.log("[WebApp] getCredentials() →",
+    creds ? `user=${creds.user}, password=${creds.password ? "(ok)" : "(vide)"}` : "null");
+
+  if (!creds) {
+    console.warn("[WebApp] Credentials introuvables, Pégase affichera sa page de login");
+    return;
+  }
+
+  await loginPegase(creds);
+
+  // Rediriger vers la page principale après le login POST
+  console.log("[WebApp] Redirection vers", PEGASE.href);
+  await browser.tabs.update(tabId, { url: PEGASE.href });
+});

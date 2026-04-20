@@ -17,7 +17,7 @@ const PACOME_SEP_UID = ".-.";
 
 // Login store : realm Filelink Pacome (source persistante du mot de passe)
 const FILELINK_ORIGIN = "https://bnum.din.gouv.fr";
-const FILELINK_REALM  = "filelink-nextcloud-melanie2";
+const FILELINK_REALM = "filelink-nextcloud-melanie2";
 
 this.webappApi = class extends ExtensionAPI {
 
@@ -48,22 +48,30 @@ this.webappApi = class extends ExtensionAPI {
               "resource:///modules/MailServices.sys.mjs"
             );
 
+            Services.console.logStringMessage("[WebApp] getCredentials: démarrage");
+
             // --- Trouver le compte Pacome principal ---
-            // Pacome marque ses comptes avec la préférence serveur "pacome.confid".
-            // On cherche d'abord le compte par défaut, puis on parcourt tous les comptes.
             let account = null;
             try {
               const def = MailServices.accounts.defaultAccount;
-              if (def?.incomingServer?.getStringValue("pacome.confid")) {
-                account = def;
-              }
-            } catch (e) { /* defaultAccount peut lever si aucun compte */ }
+              const confid = def?.incomingServer?.getStringValue("pacome.confid");
+              Services.console.logStringMessage("[WebApp] getCredentials: defaultAccount srv="
+                + (def?.incomingServer?.hostName || "null")
+                + " type=" + (def?.incomingServer?.type || "null")
+                + " pacome.confid=" + (confid || "(vide)"));
+              if (confid) account = def;
+            } catch (e) {
+              Services.console.logStringMessage("[WebApp] getCredentials: defaultAccount erreur: " + e);
+            }
 
             if (!account) {
+              Services.console.logStringMessage("[WebApp] getCredentials: parcours de tous les comptes...");
               for (const acc of MailServices.accounts.accounts) {
                 const srv = acc.incomingServer;
-                if ((srv.type === "imap" || srv.type === "pop3") &&
-                    srv.getStringValue("pacome.confid")) {
+                const confid = srv.getStringValue("pacome.confid");
+                Services.console.logStringMessage("[WebApp] getCredentials: compte srv="
+                  + srv.hostName + " type=" + srv.type + " pacome.confid=" + (confid || "(vide)"));
+                if ((srv.type === "imap" || srv.type === "pop3") && confid) {
                   account = acc;
                   break;
                 }
@@ -76,25 +84,33 @@ this.webappApi = class extends ExtensionAPI {
             }
 
             const server = account.incomingServer;
+            Services.console.logStringMessage("[WebApp] getCredentials: compte Pacome trouvé: "
+              + server.hostName + " username=" + server.username);
 
-            // Uid réduit : partie gauche du séparateur .-.
-            // Exemple : "jean.dupont.-.partage" → "jean.dupont"
-            const fullUid  = server.username;
-            const uid      = fullUid.split(PACOME_SEP_UID)[0];
+            // Uid réduit
+            const fullUid = server.username;
+            const uid = fullUid.split(PACOME_SEP_UID)[0];
+            Services.console.logStringMessage("[WebApp] getCredentials: fullUid=" + fullUid + " uid=" + uid);
 
             // --- Source 1 : mot de passe en mémoire ---
             let password = server.password;
+            Services.console.logStringMessage("[WebApp] getCredentials: server.password "
+              + (password ? "(rempli, longueur=" + password.length + ")" : "(vide ou null)"));
 
-            // --- Source 2 : login store Mozilla (realm filelink Pacome) ---
+            // --- Source 2 : login store Mozilla ---
             if (!password) {
+              Services.console.logStringMessage("[WebApp] getCredentials: tentative login store origin="
+                + FILELINK_ORIGIN + " realm=" + FILELINK_REALM);
               try {
                 const logins = Services.logins.findLogins(
                   FILELINK_ORIGIN, null, FILELINK_REALM
                 );
-                // Le username dans le store est l'uid complet (pas réduit pour filelink)
-                // On cherche celui dont l'uid réduit correspond
+                Services.console.logStringMessage("[WebApp] getCredentials: login store: "
+                  + logins.length + " entrée(s) trouvée(s)");
                 for (const login of logins) {
                   const loginUid = login.username.split(PACOME_SEP_UID)[0];
+                  Services.console.logStringMessage("[WebApp] getCredentials: store entry username=" + login.username
+                    + " loginUid=" + loginUid + " match=" + (loginUid === uid));
                   if (loginUid === uid) {
                     password = login.password;
                     break;
@@ -110,11 +126,11 @@ this.webappApi = class extends ExtensionAPI {
               return null;
             }
 
-            Services.console.logStringMessage("[WebApp] getCredentials: credentials trouvés pour uid: " + uid);
+            Services.console.logStringMessage("[WebApp] getCredentials: credentials OK pour uid: " + uid);
             return { user: uid, password };
 
           } catch (e) {
-            Services.console.logStringMessage("[WebApp] getCredentials: exception: " + e);
+            Services.console.logStringMessage("[WebApp] getCredentials: exception générale: " + e);
             return null;
           }
         },
@@ -130,24 +146,33 @@ this.webappApi = class extends ExtensionAPI {
             const WM = Cc["@mozilla.org/appshell/window-mediator;1"]
               .getService(Ci.nsIWindowMediator);
             const win = WM.getMostRecentWindow("mail:3pane");
+            Services.console.logStringMessage("[WebApp] openOrFocusTab: url=" + url
+              + " win=" + (win ? "ok" : "null"));
             if (!win) return;
 
             const tabmail = win.document.getElementById("tabmail");
+            Services.console.logStringMessage("[WebApp] openOrFocusTab: tabmail=" + (tabmail ? "ok" : "null"));
             if (!tabmail) return;
+
+            Services.console.logStringMessage("[WebApp] openOrFocusTab: " + tabmail.tabInfo.length + " onglet(s) ouverts");
 
             // Chercher un onglet existant dont l'URL correspond
             for (const tabInfo of tabmail.tabInfo) {
               const browser = tabInfo.browser;
               if (!browser) continue;
               const tabUrl = browser.currentURI?.spec || "";
+              Services.console.logStringMessage("[WebApp] openOrFocusTab: onglet url=" + tabUrl
+                + " match=" + tabUrl.startsWith(urlPrefix));
               if (tabUrl.startsWith(urlPrefix)) {
                 tabmail.switchToTab(tabInfo);
                 win.focus();
+                Services.console.logStringMessage("[WebApp] openOrFocusTab: switch vers onglet existant");
                 return;
               }
             }
 
             // Aucun onglet existant → en ouvrir un nouveau
+            Services.console.logStringMessage("[WebApp] openOrFocusTab: ouverture nouvel onglet");
             tabmail.openTab("contentTab", {
               contentPage: url,
               clickHandler: "return true;"
