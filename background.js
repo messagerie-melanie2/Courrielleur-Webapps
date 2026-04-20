@@ -12,13 +12,13 @@
 // Configuration Pégase
 // -----------------------------------------------------------------------
 const PEGASE = {
-  name:               "Pégase",
-  href:               "https://pegase.din.developpement-durable.gouv.fr/",
-  login_page:         "https://pegase.din.developpement-durable.gouv.fr/?_p=login",
+  name: "Pégase",
+  href: "https://pegase.din.developpement-durable.gouv.fr/",
+  login_page: "https://pegase.din.developpement-durable.gouv.fr/?_p=login",
   external_login_url: "https://pegase.din.developpement-durable.gouv.fr/?_p=external_login",
   // %%username%% et %%password%% sont substitués avant l'envoi
-  login_params:       "username=%%username%%&password=%%password%%&timezone=%%timezone%%",
-  request_type:       "POST",
+  login_params: "username=%%username%%&password=%%password%%&timezone=%%timezone%%",
+  request_type: "POST",
 };
 
 // -----------------------------------------------------------------------
@@ -30,14 +30,14 @@ async function loginPegase(creds) {
   let params = PEGASE.login_params
     .replace(/%%username%%/g, encodeURIComponent(creds.user))
     .replace(/%%password%%/g, encodeURIComponent(creds.password))
-    .replace(/%%timezone%%/g,  encodeURIComponent(timezone));
+    .replace(/%%timezone%%/g, encodeURIComponent(timezone));
 
   try {
     await fetch(PEGASE.external_login_url, {
-      method:      "POST",
+      method: "POST",
       credentials: "include",
-      headers:     { "Content-Type": "application/x-www-form-urlencoded" },
-      body:        params,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params,
     });
     console.log("[WebApp] loginPegase: login POST effectué");
   } catch (e) {
@@ -71,10 +71,10 @@ async function openPegase() {
 async function createSpaceButton() {
   try {
     const space = await browser.spaces.create("Pegase", PEGASE.href, {
-      title:        PEGASE.name,
+      title: PEGASE.name,
       defaultIcons: {
-        "16": "skin/images/favicon.ico",
-        "32": "skin/images/favicon.ico",
+        "16": "skin/images/bar-graph.png",
+        "32": "skin/images/bar-graph.png",
       },
     });
     console.log("[WebApp] Bouton Pégase créé dans la SpacesToolbar, space.id:", space.id);
