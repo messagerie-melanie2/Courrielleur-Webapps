@@ -1,0 +1,42 @@
+[{
+  "namespace": "webappApi",
+  "functions": [
+    {
+      "name": "init",
+      "type": "function",
+      "description": "Initialise l'API WebApp (no-op, conservé pour compatibilité).",
+      "parameters": [],
+      "async": false
+    },
+    {
+      "name": "getCredentials",
+      "type": "function",
+      "description": "Récupère les credentials du compte Pacome principal (uid réduit + mot de passe). Cherche d'abord en mémoire (nsIMsgIncomingServer.password), puis dans le login store Mozilla (realm filelink-nextcloud-melanie2).",
+      "parameters": [],
+      "async": true,
+      "returns": {
+        "type": "any",
+        "description": "Objet {user, password} ou null si introuvable."
+      }
+    },
+    {
+      "name": "openOrFocusTab",
+      "type": "function",
+      "description": "Ouvre une URL dans un onglet Thunderbird, ou donne le focus à l'onglet existant si l'URL commence par le préfixe donné.",
+      "parameters": [
+        {
+          "name": "url",
+          "type": "string",
+          "description": "URL à ouvrir."
+        },
+        {
+          "name": "urlPrefix",
+          "type": "string",
+          "description": "Préfixe pour détecter un onglet déjà ouvert."
+        }
+      ],
+      "async": true
+    }
+  ],
+  "events": []
+}]

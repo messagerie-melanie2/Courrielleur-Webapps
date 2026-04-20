@@ -1,0 +1,191 @@
+/* Default light theme styles */
+body {
+    background-color: #fff;
+    color: #000;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+  }
+
+  .dialog {
+    background-color: #f0f0f0;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  }
+
+  .dialog-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 10px;
+  }
+
+  .input-group {
+    margin: 10px 0;
+  }
+
+  label {
+    font-size: 14px;
+    font-weight: bold;
+  }
+
+  input, select {
+    width: 90%;
+    padding: 8px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+
+  .buttons {
+    margin-top: 15px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  button {
+    padding: 4px 8px;
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background-color: #e0e0e0;
+    position: relative;
+  }
+
+  button:hover {
+    background-color: #d0d0d0;
+  }
+
+  button:disabled {
+    background-color: #999;
+    color: #ccc;
+    border: 1px solid #aaa;
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  button:disabled:hover {
+    background-color: #999;
+  }
+
+  /* Tooltip */
+  button::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    top: 125%;
+    left: 0;
+    background-color: #000000bb;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    display: block;
+    width: 220px;
+    white-space: normal;
+    overflow-wrap: break-word;
+    text-align: left;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease-in-out;
+  }
+
+  button::before {
+    content: "";
+    position: absolute;
+    top: 90%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 5px;
+    border-style: solid;
+    border-color: transparent transparent #000000bb transparent;
+    opacity: 0;
+    transition: opacity 0.15s ease-in-out;
+  }
+
+  button:hover::after,
+  button:hover::before {
+    opacity: 1;
+  }
+
+  button[data-tooltip=""]::after,
+  button:not([data-tooltip])::after {
+    content: none !important;
+  }
+
+  /* Progress bar */
+  #progressTrack {
+    position: relative;
+    width: 70%;
+    height: 4px;
+    background: #e0e0e0;
+    overflow: hidden;
+    border-radius: 2px;
+    margin-top: 8px;
+  }
+
+  #progressBar {
+    position: absolute;
+    width: 40%;
+    height: 100%;
+    background: #0078D7;
+    animation: roll 1s linear infinite;
+  }
+
+  @keyframes roll {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+  }
+
+  /* Dark theme styles */
+  @media (prefers-color-scheme: dark) {
+    body {
+      background-color: #2e2e2e;
+      color: #e0e0e0;
+    }
+
+    .dialog {
+      background-color: #3c3c3c;
+      border-color: #666;
+    }
+
+    .dialog-title {
+      color: #e0e0e0;
+    }
+
+    .input-group label {
+      color: #e0e0e0;
+    }
+
+    input, select {
+      background-color: #555;
+      color: #e0e0e0;
+      border: 1px solid #777;
+    }
+
+    button {
+      background-color: #666;
+      color: #e0e0e0;
+      border: 1px solid #777;
+    }
+
+    button:hover {
+      background-color: #444;
+    }
+
+    button:disabled {
+      background-color: #999;
+      color: #ccc;
+      border: 1px solid #aaa;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    button:disabled:hover {
+      background-color: #999;
+    }
+  }

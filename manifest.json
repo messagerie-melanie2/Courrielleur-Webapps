@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "WebApp",
+  "version": "1.0",
+  "description": "Intégration des applications web MEL dans Thunderbird.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "webapp@developpement-durable.fr"
+    }
+  },
+  "experiment_apis": {
+    "webappApi": {
+      "schema": "./api/webappApi/schema.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "paths": [["webappApi"]],
+        "script": "./api/webappApi/implementation.js"
+      }
+    }
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "permissions": [
+    "tabs",
+    "storage",
+    "accountsRead"
+  ],
+  "icons": {
+    "32": "skin/images/favicon.ico"
+  }
+}
