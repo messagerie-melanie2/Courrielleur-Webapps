@@ -36,6 +36,24 @@
         }
       ],
       "async": true
+    },
+    {
+      "name": "loginBnum",
+      "type": "function",
+      "description": "Effectue le login POST MEL (Bnum/Roundcube) via XHR chrome-privilégié. Partage le même jar de cookies que les onglets Thunderbird.",
+      "parameters": [
+        {
+          "name": "user",
+          "type": "string",
+          "description": "Identifiant MEL (uid réduit)."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "description": "Mot de passe MEL."
+        }
+      ],
+      "async": true
     }
   ],
   "events": []

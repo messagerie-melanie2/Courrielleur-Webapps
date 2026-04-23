@@ -22,6 +22,24 @@ const PEGASE = {
 };
 
 // -----------------------------------------------------------------------
+// Configuration Bnum (paramètres MEL / bnum.din.gouv.fr)
+// -----------------------------------------------------------------------
+const BNUM = {
+  name: "Mon Compte BNUM",
+  href_prefix: "https://bnum.din.gouv.fr/",
+  external_login_url: "https://bnum.din.gouv.fr/?_task=login&_courrielleur=1",
+  login_params: "_user=%%username%%&_pass=%%password%%&_task=login&_action=login&_keeplogin=1",
+  // Page d'accueil Bnum (bouton accueil)
+  home_url: "https://bnum.din.gouv.fr/?_courrielleur=1",
+  // Page paramètres Bnum (bouton paramètres)
+  default_url: "https://bnum.din.gouv.fr/?_task=settings&_action=plugin.mel_moncompte&_courrielleur=1",
+};
+
+// URL cible mémorisée par tabId avant que Bnum redirige vers login.
+// Permet au content script de savoir où rediriger après login réussi.
+const bnumIntendedUrl = new Map();
+
+// -----------------------------------------------------------------------
 // Login POST silencieux sur Pégase
 // -----------------------------------------------------------------------
 async function loginPegase(creds) {
@@ -50,6 +68,32 @@ async function loginPegase(creds) {
   } catch (e) {
     console.warn("[WebApp] loginPegase: erreur fetch:", e.message || e);
     // On continue quand même — l'onglet s'ouvrira, Pégase demandera le login si besoin
+  }
+}
+
+// -----------------------------------------------------------------------
+// Login POST silencieux sur Bnum (bnum.din.gouv.fr)
+// -----------------------------------------------------------------------
+async function loginBnum(creds) {
+  console.log("[WebApp] loginBnum: user=", creds.user, "→", BNUM.external_login_url);
+
+  const params = BNUM.login_params
+    .replace(/%%username%%/g, encodeURIComponent(creds.user))
+    .replace(/%%password%%/g, encodeURIComponent(creds.password));
+
+  console.log("[WebApp] loginBnum: body (mdp masqué)=",
+    params.replace(/_pass=[^&]*/i, "_pass=***"));
+
+  try {
+    const response = await fetch(BNUM.external_login_url, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params,
+    });
+    console.log("[WebApp] loginBnum: HTTP", response.status, "→ finalUrl:", response.url);
+  } catch (e) {
+    console.warn("[WebApp] loginBnum: erreur fetch:", e.message || e);
   }
 }
 
@@ -83,23 +127,97 @@ async function openPegase() {
 }
 
 // -----------------------------------------------------------------------
-// SpacesToolbar — Bouton Pégase (comme Pauline/Anais branche 140)
+// Ouverture de Bnum : login chrome-privilégié (Experiment API) puis onglet
+// Le login est fait via webappApi.loginBnum() qui utilise un XHR chrome
+// (même jar de cookies que les onglets, identique à la legacy webtab.js).
 // -----------------------------------------------------------------------
-async function createSpaceButton() {
+async function openBnum() {
+  console.log("[WebApp] openBnum: démarrage");
+
+  let creds;
+  try {
+    creds = await browser.webappApi.getCredentials();
+    console.log("[WebApp] openBnum: getCredentials() →",
+      creds ? `user=${creds.user}, password=${creds.password ? "(ok)" : "(vide)"}` : "null");
+  } catch (e) {
+    console.error("[WebApp] openBnum: getCredentials() exception:", e.message || e);
+    creds = null;
+  }
+
+  if (creds) {
+    // Login via XHR chrome-privilégié dans l'Experiment API
+    await browser.webappApi.loginBnum(creds.user, creds.password);
+  } else {
+    console.warn("[WebApp] openBnum: credentials introuvables, ouverture sans login");
+  }
+
+  await browser.webappApi.openOrFocusTab(BNUM.default_url, BNUM.href_prefix);
+  console.log("[WebApp] openBnum: terminé");
+}
+
+// -----------------------------------------------------------------------
+// SpacesToolbar — Boutons Pégase et Bnum
+// -----------------------------------------------------------------------
+async function createSpaceButtons() {
+  // --- Bouton BnumHome (accueil Bnum) ---
+  // Même mécanisme que le bouton Paramètres : _courrielleur=1 force la
+  // redirection vers ?_task=login, interceptée par le content script.
+  // Après login, le content script redirige vers home_url (accueil).
+  try {
+    const spaceBnumHome = await browser.spaces.create("BnumHome", BNUM.home_url, {
+      title: "BNUM",
+      defaultIcons: {
+        "16": "skin/images/bnum.png",
+        "32": "skin/images/bnum.png",
+      },
+    });
+    console.log("[WebApp] Bouton Bnum Accueil créé, space.id:", spaceBnumHome.id);
+  } catch (e) {
+    if (!e.message?.includes("already")) {
+      console.error("[WebApp] Erreur création bouton Bnum Accueil:", e);
+    } else {
+      console.log("[WebApp] Space BnumHome déjà existant (rechargement extension)");
+    }
+  }
+
+  // --- Bouton Bnum (paramètres Bnum) ---
+  // Le space pointe vers BNUM.default_url (inclut _courrielleur=1).
+  // Ce paramètre force Bnum à rediriger vers ?_task=login quand la session
+  // expire, au lieu d'afficher l'erreur "session expirée" en ligne.
+  // Le content script bnum_login.js intercepte cette page de login et
+  // effectue l'authentification automatique (même-origine → cookies OK).
+  try {
+    const spaceBnum = await browser.spaces.create("Bnum", BNUM.default_url, {
+      title: BNUM.name,
+      defaultIcons: {
+        "16": "skin/images/bnum_param.png",
+        "32": "skin/images/bnum_param.png",
+      },
+    });
+    console.log("[WebApp] Bouton Bnum créé, space.id:", spaceBnum.id);
+  } catch (e) {
+    if (!e.message?.includes("already")) {
+      console.error("[WebApp] Erreur création bouton Bnum:", e);
+    } else {
+      console.log("[WebApp] Space Bnum déjà existant (rechargement extension)");
+    }
+  }
+
+  // --- Bouton Pégase ---
   try {
     // TB 140 : spaces.create avec une URL ouvre l'onglet automatiquement au clic.
     // spaces.onClicked n'existe pas dans cette version → on intercepte via tabs.onUpdated.
     const space = await browser.spaces.create("Pegase", PEGASE.href, {
       title: PEGASE.name,
       defaultIcons: {
-        "16": "skin/images/bar-graph.png",
-        "32": "skin/images/bar-graph.png",
+        "16": "skin/images/pegase.png",
+        "32": "skin/images/pegase.png",
       },
     });
     console.log("[WebApp] Bouton Pégase créé, space.id:", space.id, "space.name:", space.name);
   } catch (e) {
     if (!e.message?.includes("already")) {
-      console.error("[WebApp] Erreur création bouton SpacesToolbar:", e);
+      console.error("[WebApp] Erreur création bouton Pégase (SpacesToolbar):", e);
     } else {
       console.log("[WebApp] Space Pegase déjà existant (rechargement extension)");
     }
@@ -113,13 +231,13 @@ function webappInit() {
   browser.webappApi.init();
 }
 
-// Attendre qu'un onglet mail soit disponible avant de créer le bouton
+// Attendre qu'un onglet mail soit disponible avant de créer les boutons
 async function waitForMailTabAndRun() {
   const tabs = await browser.tabs.query({});
   for (const tab of tabs) {
     if (tab.mailTab) {
       webappInit();
-      createSpaceButton();
+      createSpaceButtons();
       return;
     }
   }
@@ -127,7 +245,7 @@ async function waitForMailTabAndRun() {
   browser.tabs.onCreated.addListener(async (tab) => {
     if (tab.mailTab) {
       webappInit();
-      createSpaceButton();
+      createSpaceButtons();
     }
   });
 }
@@ -136,11 +254,90 @@ async function waitForMailTabAndRun() {
 waitForMailTabAndRun();
 browser.runtime.onStartup.addListener(() => {
   webappInit();
-  createSpaceButton();
+  createSpaceButtons();
 });
 browser.runtime.onInstalled.addListener(() => {
   webappInit();
-  createSpaceButton();
+  createSpaceButtons();
+});
+
+// -----------------------------------------------------------------------
+// Message depuis bnum_loader.html → login MEL puis redirection
+//
+// Quand l'utilisateur clique sur le bouton Bnum, TB ouvre la page locale
+// bnum_loader.html. Ce script envoie le message { action: "openBnum" }.
+// On effectue ici le login POST silencieux, puis on redirige l'onglet.
+// -----------------------------------------------------------------------
+browser.runtime.onMessage.addListener((message, sender) => {
+  // ---------------------------------------------------------------
+  // "getCredentials" : la page bnum_loader.html demande les credentials
+  // pour effectuer le login fetch dans son propre contexte d'onglet.
+  // On retourne une Promise (valeur asynchrone) au message sender.
+  // ---------------------------------------------------------------
+  if (message?.action === "getCredentials") {
+    return browser.webappApi.getCredentials();
+  }
+
+  // ---------------------------------------------------------------
+  // "getBnumIntendedUrl" : le content script bnum_login.js demande
+  // l'URL cible (accueil ou paramètres) selon quel bouton a été cliqué.
+  // L'URL a été mémorisée par tabs.onUpdated avant la redirection login.
+  // ---------------------------------------------------------------
+  if (message?.action === "getBnumIntendedUrl") {
+    const tabId = sender.tab?.id;
+    const url = bnumIntendedUrl.get(tabId) || BNUM.default_url;
+    bnumIntendedUrl.delete(tabId); // usage unique
+    console.log("[WebApp] getBnumIntendedUrl tabId=", tabId, "url=", url);
+    return Promise.resolve(url);
+  }
+
+  // ---------------------------------------------------------------
+  // "openBnum" : fallback — redirection directe depuis le background
+  // (utilisé si le fetch depuis la page loader est impossible)
+  // ---------------------------------------------------------------
+  if (message?.action === "openBnum") {
+    // Priorité : tabId envoyé par la page (browser.tabs.getCurrent), fallback sender.tab
+    const tabId = message.tabId ?? sender.tab?.id;
+    console.log("[WebApp] onMessage openBnum === REÇU ===");
+    console.log("[WebApp] onMessage openBnum: message.tabId=", message.tabId,
+      "sender.tab?.id=", sender.tab?.id, "tabId utilisé=", tabId);
+    console.log("[WebApp] onMessage openBnum: sender.url=", sender.url);
+    console.log("[WebApp] onMessage openBnum: sender.tab=", JSON.stringify(sender.tab));
+
+    if (tabId == null) {
+      console.error("[WebApp] openBnum: ABANDON — tabId introuvable");
+      return;
+    }
+
+    (async () => {
+      console.log("[WebApp] openBnum: getCredentials...");
+      let creds;
+      try {
+        creds = await browser.webappApi.getCredentials();
+        console.log("[WebApp] openBnum: getCredentials() →",
+          creds ? `user=${creds.user}, password=${creds.password ? "(ok, longueur=" + creds.password.length + ")" : "(VIDE)"}` : "NULL");
+      } catch (e) {
+        console.error("[WebApp] openBnum: getCredentials() EXCEPTION:", e.message || e);
+        creds = null;
+      }
+
+      if (creds) {
+        console.log("[WebApp] openBnum: appel webappApi.loginBnum...");
+        const status = await browser.webappApi.loginBnum(creds.user, creds.password);
+        console.log("[WebApp] openBnum: loginBnum retourné status=", status);
+      } else {
+        console.warn("[WebApp] openBnum: SKIP login — credentials null");
+      }
+
+      console.log("[WebApp] openBnum: browser.tabs.update → tabId=", tabId, "url=", BNUM.default_url);
+      try {
+        await browser.tabs.update(tabId, { url: BNUM.default_url });
+        console.log("[WebApp] openBnum: tabs.update OK");
+      } catch (e) {
+        console.error("[WebApp] openBnum: tabs.update ERREUR:", e.message || e);
+      }
+    })();
+  }
 });
 
 // -----------------------------------------------------------------------
@@ -149,8 +346,7 @@ browser.runtime.onInstalled.addListener(() => {
 // TB 140 ne dispose pas de spaces.onClicked. Quand l'utilisateur clique sur
 // le bouton Pégase, TB ouvre un onglet vers PEGASE.href. Si la session est
 // expirée, Pégase redirige vers sa page de login (?_p=login). On détecte
-// ce chargement via tabs.onUpdated et on effectue le login POST silencieux,
-// exactement comme le faisait _loadHandler dans webtab.js (extension legacy TB 60).
+// ce chargement via tabs.onUpdated et on effectue le login POST silencieux.
 // -----------------------------------------------------------------------
 console.log("[WebApp] Enregistrement du listener tabs.onUpdated pour login automatique Pégase");
 
@@ -161,24 +357,63 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   const url = changeInfo.url;
   console.log("[WebApp] tabs.onUpdated tabId:", tabId, "url:", url);
 
-  // Détecter la page de login Pégase
-  if (!url.startsWith("https://pegase.din.developpement-durable.gouv.fr")) return;
-  if (!url.includes("_p=login")) return;
+  // Quand le tab navigue vers une URL Bnum avec _courrielleur=1 (mais pas
+  // login), mémoriser cette URL comme destination après login réussi.
+  if (url.startsWith("https://bnum.din.gouv.fr") &&
+    url.includes("_courrielleur=1") &&
+    !url.includes("_task=login")) {
+    console.log("[WebApp] Bnum destination mémorisée pour tabId", tabId, ":", url);
+    bnumIntendedUrl.set(tabId, url);
+  }
 
-  console.log("[WebApp] Page de login Pégase détectée sur tabId:", tabId, "→ login automatique");
+  // ---------------------------------------------------------------
+  // Cas 1 : Page de login Pégase
+  // ---------------------------------------------------------------
+  if (url.startsWith("https://pegase.din.developpement-durable.gouv.fr") &&
+    url.includes("_p=login")) {
 
-  const creds = await browser.webappApi.getCredentials();
-  console.log("[WebApp] getCredentials() →",
-    creds ? `user=${creds.user}, password=${creds.password ? "(ok)" : "(vide)"}` : "null");
+    console.log("[WebApp] Page de login Pégase détectée sur tabId:", tabId, "→ login automatique");
 
-  if (!creds) {
-    console.warn("[WebApp] Credentials introuvables, Pégase affichera sa page de login");
+    const creds = await browser.webappApi.getCredentials();
+    console.log("[WebApp] getCredentials() →",
+      creds ? `user=${creds.user}, password=${creds.password ? "(ok)" : "(vide)"}` : "null");
+
+    if (!creds) {
+      console.warn("[WebApp] Credentials introuvables, Pégase affichera sa page de login");
+      return;
+    }
+
+    await loginPegase(creds);
+
+    // Rediriger vers la page principale après le login POST
+    console.log("[WebApp] Redirection vers", PEGASE.href);
+    await browser.tabs.update(tabId, { url: PEGASE.href });
     return;
   }
 
-  await loginPegase(creds);
+  // ---------------------------------------------------------------
+  // Cas 2 : Page de login Bnum (bnum.din.gouv.fr)
+  // Même pattern que Pégase : bnum.din.gouv.fr redirige vers ?_task=login
+  // quand la session expire → on le détecte et on fait le login POST.
+  // ---------------------------------------------------------------
+  if (url.startsWith("https://bnum.din.gouv.fr") && url.includes("_task=login")) {
 
-  // Rediriger vers la page principale après le login POST
-  console.log("[WebApp] Redirection vers", PEGASE.href);
-  await browser.tabs.update(tabId, { url: PEGASE.href });
+    console.log("[WebApp] Page de login Bnum détectée sur tabId:", tabId, "→ login automatique");
+
+    const creds = await browser.webappApi.getCredentials();
+    console.log("[WebApp] loginBnum getCredentials() →",
+      creds ? `user=${creds.user}, password=${creds.password ? "(ok)" : "(vide)"}` : "null");
+
+    if (!creds) {
+      console.warn("[WebApp] Credentials introuvables, Bnum affichera sa page de login");
+      return;
+    }
+
+    await loginBnum(creds);
+
+    console.log("[WebApp] Redirection Bnum vers", BNUM.default_url);
+    await browser.tabs.update(tabId, { url: BNUM.default_url });
+    return;
+  }
+
 });

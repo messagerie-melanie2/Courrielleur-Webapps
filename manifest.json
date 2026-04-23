@@ -12,21 +12,39 @@
     "webappApi": {
       "schema": "./api/webappApi/schema.json",
       "parent": {
-        "scopes": ["addon_parent"],
-        "paths": [["webappApi"]],
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "webappApi"
+          ]
+        ],
         "script": "./api/webappApi/implementation.js"
       }
     }
   },
   "background": {
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
+  "content_scripts": [
+    {
+      "matches": ["https://bnum.din.gouv.fr/*"],
+      "js": ["content/bnum_login.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "permissions": [
     "tabs",
     "storage",
     "accountsRead"
   ],
+  "host_permissions": [
+    "https://bnum.din.gouv.fr/*"
+  ],
   "icons": {
-    "32": "skin/images/bar-graph.png"
+    "32": "skin/images/pegase.png"
   }
 }
