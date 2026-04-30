@@ -5,7 +5,7 @@
   "description": "Intégration des applications BNUM dans Thunderbird.",
   "browser_specific_settings": {
     "gecko": {
-      "id": "webapp@developpement-durable.fr"
+      "id": "webapps@developpement-durable.fr"
     }
   },
   "experiment_apis": {
