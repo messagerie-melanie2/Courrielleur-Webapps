@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "WebApp",
+  "name": "WebApps",
   "version": "1.0",
   "description": "Intégration des applications web MEL dans Thunderbird.",
   "browser_specific_settings": {
