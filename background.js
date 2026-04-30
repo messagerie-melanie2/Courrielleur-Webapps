@@ -160,11 +160,10 @@ async function openBnum() {
 // -----------------------------------------------------------------------
 async function createSpaceButtons() {
   // --- Bouton BnumHome (accueil Bnum) ---
-  // Même mécanisme que le bouton Paramètres : _courrielleur=1 force la
-  // redirection vers ?_task=login, interceptée par le content script.
-  // Après login, le content script redirige vers home_url (accueil).
+  // Ouvre directement la boîte mail sans paramètre _courrielleur pour
+  // éviter le skin Courrielleur qui altère l'affichage de la page d'accueil.
   try {
-    const spaceBnumHome = await browser.spaces.create("BnumHome", BNUM.home_url, {
+    const spaceBnumHome = await browser.spaces.create("BnumHome", "https://bnum.din.gouv.fr/?_task=mail", {
       title: "BNUM",
       defaultIcons: {
         "16": "skin/images/bnum.png",

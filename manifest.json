@@ -31,8 +31,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://bnum.din.gouv.fr/*"],
-      "js": ["content/bnum_login.js"],
+      "matches": [
+        "https://bnum.din.gouv.fr/*"
+      ],
+      "js": [
+        "content/bnum_login.js"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -45,6 +49,6 @@
     "https://bnum.din.gouv.fr/*"
   ],
   "icons": {
-    "32": "skin/images/pegase.png"
+    "32": "skin/images/webapps.png"
   }
 }
