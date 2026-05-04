@@ -160,10 +160,13 @@ async function openBnum() {
 // -----------------------------------------------------------------------
 async function createSpaceButtons() {
   // --- Bouton BnumHome (accueil Bnum) ---
-  // Ouvre directement la boîte mail sans paramètre _courrielleur pour
-  // éviter le skin Courrielleur qui altère l'affichage de la page d'accueil.
+  // On pointe vers une page locale (loader) qui demande au background de faire
+  // le login via XHR chrome-privilégié (jar de cookies partagé) AVANT de naviguer
+  // vers ?_task=mail. Cela évite tout usage de _courrielleur=1 qui marquerait
+  // la session Bnum en "mode Courrielleur" et casserait le skin de la boîte mail.
   try {
-    const spaceBnumHome = await browser.spaces.create("BnumHome", "https://bnum.din.gouv.fr/?_task=mail", {
+    const spaceBnumHome = await browser.spaces.create("BnumHome",
+      browser.runtime.getURL("content/bnum_home_loader.html"), {
       title: "BNUM",
       defaultIcons: {
         "16": "skin/images/bnum.png",
@@ -230,34 +233,39 @@ function webappInit() {
   browser.webappApi.init();
 }
 
-// Attendre qu'un onglet mail soit disponible avant de créer les boutons
-async function waitForMailTabAndRun() {
-  const tabs = await browser.tabs.query({});
-  for (const tab of tabs) {
-    if (tab.mailTab) {
-      webappInit();
-      createSpaceButtons();
-      return;
+/**
+ * Tente de créer les boutons SpacesToolbar, avec retries en cas d'échec.
+ * La propriété tab.mailTab n'est pas fiable sur onCreated (onglet pas encore
+ * initialisé), on utilise donc une stratégie de retry avec délai croissant.
+ */
+let _spaceButtonsCreated = false;
+async function initWithRetry(attempt = 1) {
+  if (_spaceButtonsCreated) return;
+  try {
+    webappInit();
+    await createSpaceButtons();
+    _spaceButtonsCreated = true;
+    console.log("[WebApp] Boutons SpacesToolbar créés (tentative", attempt, ")");
+  } catch (e) {
+    const delay = Math.min(1000 * attempt, 10000);
+    console.warn("[WebApp] createSpaceButtons échec tentative", attempt, "— retry dans", delay, "ms:", e.message || e);
+    if (attempt < 5) {
+      setTimeout(() => initWithRetry(attempt + 1), delay);
+    } else {
+      console.error("[WebApp] Abandon après", attempt, "tentatives.");
     }
   }
-  // Pas encore d'onglet mail → attendre
-  browser.tabs.onCreated.addListener(async (tab) => {
-    if (tab.mailTab) {
-      webappInit();
-      createSpaceButtons();
-    }
-  });
 }
 
-// Lancer l'initialisation
-waitForMailTabAndRun();
+// Lancer l'initialisation au démarrage
+initWithRetry();
 browser.runtime.onStartup.addListener(() => {
-  webappInit();
-  createSpaceButtons();
+  _spaceButtonsCreated = false;
+  initWithRetry();
 });
 browser.runtime.onInstalled.addListener(() => {
-  webappInit();
-  createSpaceButtons();
+  _spaceButtonsCreated = false;
+  initWithRetry();
 });
 
 // -----------------------------------------------------------------------
@@ -284,6 +292,8 @@ browser.runtime.onMessage.addListener((message, sender) => {
   // ---------------------------------------------------------------
   if (message?.action === "getBnumIntendedUrl") {
     const tabId = sender.tab?.id;
+    // Fallback vers default_url (paramètres Mon Compte) — destination la plus
+    // sécurisée si l'URL cible n'a pas été mémorisée (ex: tabs.onUpdated non déclenché).
     const url = bnumIntendedUrl.get(tabId) || BNUM.default_url;
     bnumIntendedUrl.delete(tabId); // usage unique
     console.log("[WebApp] getBnumIntendedUrl tabId=", tabId, "url=", url);
@@ -356,10 +366,24 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   const url = changeInfo.url;
   console.log("[WebApp] tabs.onUpdated tabId:", tabId, "url:", url);
 
-  // Quand le tab navigue vers une URL Bnum avec _courrielleur=1 (mais pas
-  // login), mémoriser cette URL comme destination après login réussi.
+  // ---------------------------------------------------------------
+  // Cas 0 : Page loader BnumHome (moz-extension://)
+  // Quand TB ouvre le space BnumHome, il charge cette page locale.
+  // On pré-remplit bnumIntendedUrl avec ?_task=mail, puis on navigue
+  // directement vers ?_task=login (SANS _courrielleur=1).
+  // Le content script bnum_login.js gère le login same-origin et redirige
+  // vers ?_task=mail — sans jamais tagguer la session en mode Courrielleur.
+  // ---------------------------------------------------------------
+  const BNUM_HOME_LOADER = browser.runtime.getURL("content/bnum_home_loader.html");
+  if (url === BNUM_HOME_LOADER) {
+    console.log("[WebApp] Loader BnumHome détecté tabId=", tabId, "→ pré-remplissage intended + nav login");
+    bnumIntendedUrl.set(tabId, "https://bnum.din.gouv.fr/?_task=mail");
+    await browser.tabs.update(tabId, { url: "https://bnum.din.gouv.fr/?_task=login" });
+    return;
+  }
+
+  // Mémoriser toute URL Bnum non-login comme destination après login réussi.
   if (url.startsWith("https://bnum.din.gouv.fr") &&
-    url.includes("_courrielleur=1") &&
     !url.includes("_task=login")) {
     console.log("[WebApp] Bnum destination mémorisée pour tabId", tabId, ":", url);
     bnumIntendedUrl.set(tabId, url);
@@ -390,29 +414,9 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     return;
   }
 
-  // ---------------------------------------------------------------
-  // Cas 2 : Page de login Bnum (bnum.din.gouv.fr)
-  // Même pattern que Pégase : bnum.din.gouv.fr redirige vers ?_task=login
-  // quand la session expire → on le détecte et on fait le login POST.
-  // ---------------------------------------------------------------
-  if (url.startsWith("https://bnum.din.gouv.fr") && url.includes("_task=login")) {
-
-    console.log("[WebApp] Page de login Bnum détectée sur tabId:", tabId, "→ login automatique");
-
-    const creds = await browser.webappApi.getCredentials();
-    console.log("[WebApp] loginBnum getCredentials() →",
-      creds ? `user=${creds.user}, password=${creds.password ? "(ok)" : "(vide)"}` : "null");
-
-    if (!creds) {
-      console.warn("[WebApp] Credentials introuvables, Bnum affichera sa page de login");
-      return;
-    }
-
-    await loginBnum(creds);
-
-    console.log("[WebApp] Redirection Bnum vers", BNUM.default_url);
-    await browser.tabs.update(tabId, { url: BNUM.default_url });
-    return;
-  }
+  // Note : le login Bnum est géré exclusivement par le content script bnum_login.js
+  // (fetch same-origin depuis le contexte de l'onglet → meilleure gestion des cookies).
+  // Ne PAS dupliquer ici via tabs.onUpdated — cela provoquerait deux tentatives
+  // simultanées et un conflit de session ("session expirée").
 
 });

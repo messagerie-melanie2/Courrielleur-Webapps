@@ -16,6 +16,11 @@
     return;
   }
 
+  // Masquer immédiatement la page pour éviter que le formulaire de login
+  // soit visible pendant les opérations async (messages roundtrip + fetch).
+  // En cas d'erreur (credentials manquants), on restaure la visibilité.
+  document.documentElement.style.visibility = 'hidden';
+
   // Récupérer les credentials depuis le background
   let creds = null;
   try {
@@ -27,6 +32,7 @@
 
   if (!creds?.user || !creds?.password) {
     console.warn("[BnumLogin] credentials introuvables, abandon");
+    document.documentElement.style.visibility = ''; // restaurer pour login manuel
     return;
   }
 
@@ -41,13 +47,19 @@
     console.warn("[BnumLogin] getBnumIntendedUrl erreur:", e, "— fallback vers", targetUrl);
   }
 
-  // Login POST en SAME-ORIGIN (même contexte que l'onglet → cookies OK)
-  const LOGIN_URL = "https://bnum.din.gouv.fr/?_task=login&_courrielleur=1";
+  // Login POST en SAME-ORIGIN (même contexte que l'onglet → cookies OK).
+  // ⚠️  On n'ajoute _courrielleur=1 dans l'URL de login QUE si la destination
+  //     cible l'utilise. Bnum marque toute la session en "mode Courrielleur"
+  //     dès que ce paramètre apparaît dans le POST → toutes les URLs seraient
+  //     ensuite redirigées vers _courrielleur=1, y compris ?_task=mail.
+  const needsCourrielleur = targetUrl.includes("_courrielleur=1");
+  const LOGIN_URL = "https://bnum.din.gouv.fr/?_task=login"
+                  + (needsCourrielleur ? "&_courrielleur=1" : "");
   const params = "_user=" + encodeURIComponent(creds.user)
                + "&_pass=" + encodeURIComponent(creds.password)
                + "&_task=login&_action=login&_keeplogin=1";
 
-  console.log("[BnumLogin] fetch POST →", LOGIN_URL);
+  console.log("[BnumLogin] fetch POST →", LOGIN_URL, "(courrielleur mode:", needsCourrielleur, ")");
   try {
     const resp = await fetch(LOGIN_URL, {
       method: "POST",
