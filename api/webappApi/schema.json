@@ -54,6 +54,24 @@
         }
       ],
       "async": true
+    },
+    {
+      "name": "loginPegase",
+      "type": "function",
+      "description": "Effectue le login POST P\u00e9gase via XHR chrome-privil\u00e9gi\u00e9 (bypass CORS). Partage le m\u00eame jar de cookies que les onglets Thunderbird.",
+      "parameters": [
+        {
+          "name": "user",
+          "type": "string",
+          "description": "Identifiant P\u00e9gase."
+        },
+        {
+          "name": "password",
+          "type": "string",
+          "description": "Mot de passe P\u00e9gase."
+        }
+      ],
+      "async": true
     }
   ],
   "events": []

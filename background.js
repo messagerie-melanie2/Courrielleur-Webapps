@@ -13,6 +13,7 @@
 // -----------------------------------------------------------------------
 const PEGASE = {
   name: "Pégase",
+  url_prefix: "https://pegase.din.developpement-durable.gouv.fr",
   href: "https://pegase.din.developpement-durable.gouv.fr/",
   login_page: "https://pegase.din.developpement-durable.gouv.fr/?_p=login",
   external_login_url: "https://pegase.din.developpement-durable.gouv.fr/?_p=external_login",
@@ -34,6 +35,15 @@ const BNUM = {
   // Page paramètres Bnum (bouton paramètres)
   default_url: "https://bnum.din.gouv.fr/?_task=settings&_action=plugin.mel_moncompte&_courrielleur=1",
 };
+
+// URL cible Pégase mémorisée (lien cliqué depuis un mail) pour
+// redirection après login automatique via tabs.onUpdated.
+let pegasePendingUrl = null;
+
+// Guard anti-boucle : tabIds pour lesquels un login Pégase est en cours.
+// Empêche la boucle infinie si le XHR-login et la redirection ne synchronisent
+// pas correctement avec tabs.onUpdated.
+const pegaseLoginInProgress = new Set();
 
 // URL cible mémorisée par tabId avant que Bnum redirige vers login.
 // Permet au content script de savoir où rediriger après login réussi.
@@ -241,18 +251,26 @@ function webappInit() {
 let _spaceButtonsCreated = false;
 async function initWithRetry(attempt = 1) {
   if (_spaceButtonsCreated) return;
+
+  // webappInit est indépendant : on ne laisse pas une erreur ici bloquer les boutons
   try {
     webappInit();
+  } catch (e) {
+    console.error("[WebApp] webappInit erreur:", e.message || e, e);
+  }
+
+  try {
     await createSpaceButtons();
     _spaceButtonsCreated = true;
     console.log("[WebApp] Boutons SpacesToolbar créés (tentative", attempt, ")");
   } catch (e) {
     const delay = Math.min(1000 * attempt, 10000);
-    console.warn("[WebApp] createSpaceButtons échec tentative", attempt, "— retry dans", delay, "ms:", e.message || e);
+    console.warn("[WebApp] createSpaceButtons échec tentative", attempt,
+      "— retry dans", delay, "ms:", e.message || e, e);
     if (attempt < 5) {
       setTimeout(() => initWithRetry(attempt + 1), delay);
     } else {
-      console.error("[WebApp] Abandon après", attempt, "tentatives.");
+      console.error("[WebApp] Abandon après", attempt, "tentatives. Dernière erreur:", e);
     }
   }
 }
@@ -276,6 +294,17 @@ browser.runtime.onInstalled.addListener(() => {
 // On effectue ici le login POST silencieux, puis on redirige l'onglet.
 // -----------------------------------------------------------------------
 browser.runtime.onMessage.addListener((message, sender) => {
+  // ---------------------------------------------------------------
+  // "openPegaseUrl" : le script d'interception des messages a détecté
+  // un clic sur un lien Pégase. On ouvre l'URL dans l'onglet TB.
+  // ---------------------------------------------------------------
+  if (message?.action === "openPegaseUrl") {
+    console.log("[WebApp] openPegaseUrl reçu:", message.url);
+    pegasePendingUrl = message.url;
+    openPegase();
+    return;
+  }
+
   // ---------------------------------------------------------------
   // "getCredentials" : la page bnum_loader.html demande les credentials
   // pour effectuer le login fetch dans son propre contexte d'onglet.
@@ -390,27 +419,50 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 
   // ---------------------------------------------------------------
-  // Cas 1 : Page de login Pégase
+  // Cas 1 : URL Pégase non-login → mémoriser comme destination après login
   // ---------------------------------------------------------------
-  if (url.startsWith("https://pegase.din.developpement-durable.gouv.fr") &&
-    url.includes("_p=login")) {
+  if (url.startsWith(PEGASE.url_prefix) && !url.includes("_p=login")) {
+    // On mémorise cette URL comme destination potentielle après un login,
+    // au cas où Pégase redirige vers ?_p=login juste après.
+    pegasePendingUrl = url;
+  }
+
+  // ---------------------------------------------------------------
+  // Cas 2 : Page de login Pégase (session expirée)
+  // Guard : si un login est déjà en cours pour ce tab, ignorer pour
+  // éviter la boucle infinie (tabs.onUpdated → login → redirect → tabs.onUpdated...).
+  // ---------------------------------------------------------------
+  if (url.startsWith(PEGASE.url_prefix) && url.includes("_p=login")) {
+
+    if (pegaseLoginInProgress.has(tabId)) {
+      console.log("[WebApp] Login Pégase déjà en cours pour tabId:", tabId, "— ignoré (boucle prévenue)");
+      return;
+    }
+    pegaseLoginInProgress.add(tabId);
 
     console.log("[WebApp] Page de login Pégase détectée sur tabId:", tabId, "→ login automatique");
 
-    const creds = await browser.webappApi.getCredentials();
-    console.log("[WebApp] getCredentials() →",
-      creds ? `user=${creds.user}, password=${creds.password ? "(ok)" : "(vide)"}` : "null");
+    try {
+      const creds = await browser.webappApi.getCredentials();
+      if (!creds) {
+        console.warn("[WebApp] Credentials introuvables, Pégase affichera sa page de login");
+        return;
+      }
 
-    if (!creds) {
-      console.warn("[WebApp] Credentials introuvables, Pégase affichera sa page de login");
-      return;
+      // Login via l'Experiment API (XHR chrome-privilégié = bypass CORS)
+      await browser.webappApi.loginPegase(creds.user, creds.password);
+
+      // Rediriger vers l'URL cible mémorisée ou la page d'accueil
+      const redirectTo = pegasePendingUrl || PEGASE.href;
+      pegasePendingUrl = null;
+      console.log("[WebApp] Redirection vers", redirectTo);
+      await browser.tabs.update(tabId, { url: redirectTo });
+    } finally {
+      // Libérer le guard après un délai : la navigation de redirection
+      // prend quelques instants, on laisse le temps à tabs.onUpdated de se
+      // déclencher pour la nouvelle URL AVANT de re-accepter des logins.
+      setTimeout(() => pegaseLoginInProgress.delete(tabId), 5000);
     }
-
-    await loginPegase(creds);
-
-    // Rediriger vers la page principale après le login POST
-    console.log("[WebApp] Redirection vers", PEGASE.href);
-    await browser.tabs.update(tabId, { url: PEGASE.href });
     return;
   }
 

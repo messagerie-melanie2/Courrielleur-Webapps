@@ -7,10 +7,16 @@
  *   - openOrFocusTab(url, urlPrefix) : ouvre ou donne le focus à un onglet Thunderbird
  */
 
-var { classes: Cc, interfaces: Ci } = Components;
+var { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 const { ExtensionCommon } = ChromeUtils.importESModule(
   "resource://gre/modules/ExtensionCommon.sys.mjs"
 );
+
+// Injecter fetch (version chrome-privilégiée) dans le sandbox de l'Experiment API.
+// Par défaut, ni fetch ni XMLHttpRequest ne sont disponibles comme globaux dans ce contexte.
+// Cu.importGlobalProperties importe la version systême, qui bypasse CORS et partage
+// le jar de cookies avec les onglets Thunderbird.
+Cu.importGlobalProperties(["fetch"]);
 
 // Séparateur d'uid partagé Pacome (ex: "jean.dupont.-.partage" → uid réduit = "jean.dupont")
 const PACOME_SEP_UID = ".-.";
@@ -27,10 +33,131 @@ this.webappApi = class extends ExtensionAPI {
       webappApi: {
 
         // ----------------------------------------------------------------
-        // init() — no-op, conservé pour compatibilité avec background.js
+        // init() — installe l'intercepteur de liens Pégase au niveau chrome.
+        //
+        // Architecture TB 140 (découverte par diagnostic) :
+        //   mail:3pane (fenêtre chrome)
+        //     └─ tabmail → tabInfo.chromeBrowser → about:3pane
+        //          └─ #messageBrowser → about:message  ← liens traités ici
+        //
+        // On patche openLinkExternally (et variantes) sur chaque fenêtre
+        // de la hiérarchie, y compris via un observateur chrome-document-loaded
+        // pour les rechargements futurs (changement de message, nouvelle fenêtre).
         // ----------------------------------------------------------------
         init() {
-          // Rien à faire.
+          const PEGASE = {
+            name: "Pégase",
+            url_prefix: "https://pegase.din.developpement-durable.gouv.fr",
+            href: "https://pegase.din.developpement-durable.gouv.fr/",
+            login_page: "https://pegase.din.developpement-durable.gouv.fr/?_p=login",
+            external_login_url: "https://pegase.din.developpement-durable.gouv.fr/?_p=external_login",
+            // %%username%% et %%password%% sont substitués avant l’envoi
+            login_params: "username=%%username%%&password=%%password%%&timezone=%%timezone%%",
+            request_type: "POST",
+          };
+          const apiSelf = this;
+          const CANDIDATES = [
+            "openLinkExternally", "openURL", "openUILink",
+            "openWebLinkIn", "openLinkIn", "openTrustedLinkIn",
+          ];
+
+          function patchWin(w, label) {
+            if (!w || w._pegase_init_done) return;
+            w._pegase_init_done = true;
+            const makePatch = (name, orig) => function(url, ...args) {
+              const s = (typeof url === "string") ? url
+                : (url?.href ?? url?.spec ?? String(url));
+              if (s && s.startsWith(PEGASE.url_prefix)) {
+                Services.console.logStringMessage("[WebApp] Lien P\u00e9gase intercept\u00e9 (" + label + "." + name + "): " + s);
+                // apiSelf.loginPegase() traverse le bridge Experiment API
+                // et s'ex\u00e9cute en contexte chrome (bypass CORS, bon jar de cookies).
+                (async () => {
+                  try {
+                    const creds = await apiSelf.getCredentials();
+                    if (creds) {
+                      await apiSelf.loginPegase(creds.user, creds.password);
+                    }
+                  } catch(e) {
+                    Services.console.logStringMessage("[WebApp] loginP\u00e9gase erreur: " + e);
+                  }
+                  await apiSelf.openOrFocusTab(s, PEGASE.url_prefix);
+                })().catch(e =>
+                  Services.console.logStringMessage("[WebApp] openPegaseLink erreur: " + e));
+                return;
+              }
+              return orig.apply(w, [url, ...args]);
+            };
+            const done = [];
+            for (const fn of CANDIDATES) {
+              if (typeof w[fn] === "function") {
+                w[fn] = makePatch(fn, w[fn]);
+                done.push(fn);
+              }
+            }
+            if (done.length) {
+              Services.console.logStringMessage("[WebApp] init: intercepteur installé sur " + label + " (" + done.join(", ") + ")");
+            }
+          }
+
+          function patchBrowserHierarchy(tabInfo) {
+            for (const prop of ["browser", "chromeBrowser", "linkedBrowser"]) {
+              const b = tabInfo[prop];
+              if (!b) continue;
+              try {
+                const bWin = b.contentWindow;
+                if (!bWin) continue;
+                patchWin(bWin, prop);
+                // Browsers imbriqués (messageBrowser, etc.)
+                for (const ib of bWin.document?.querySelectorAll("browser") || []) {
+                  try {
+                    const ibWin = ib.contentWindow;
+                    if (ibWin) patchWin(ibWin, "innerBrowser[" + (ib.id || ib.getAttribute("src") || "?") + "]");
+                  } catch(e) {}
+                }
+              } catch(e) {}
+            }
+          }
+
+          try {
+            const WM = Cc["@mozilla.org/appshell/window-mediator;1"]
+              .getService(Ci.nsIWindowMediator);
+            const win = WM.getMostRecentWindow("mail:3pane");
+            if (!win) {
+              Services.console.logStringMessage("[WebApp] init: fenêtre mail:3pane introuvable");
+              return;
+            }
+
+            patchWin(win, "mail:3pane");
+
+            const tabmail = win.document.getElementById("tabmail");
+            if (tabmail) {
+              for (const tabInfo of tabmail.tabInfo) {
+                try { patchBrowserHierarchy(tabInfo); } catch(e) {}
+              }
+            }
+
+            // Observer les futurs chargements de documents chrome
+            // (about:message se recharge à chaque changement de message sélectionné)
+            const docObserver = {
+              observe(subject, topic, data) {
+                try {
+                  const w = subject?.defaultView;
+                  if (!w) return;
+                  const href = w.location?.href || "";
+                  if (href.includes("3pane") || href.includes("message") || href.includes("mail")) {
+                    patchWin(w, "observed:" + href.split("/").pop());
+                  }
+                } catch(e) {}
+              }
+            };
+            Services.obs.addObserver(docObserver, "chrome-document-loaded");
+            context.callOnClose({ close() {
+              Services.obs.removeObserver(docObserver, "chrome-document-loaded");
+            }});
+
+          } catch(e) {
+            Services.console.logStringMessage("[WebApp] init: ERREUR: " + e + "\n" + e.stack);
+          }
         },
 
         // ----------------------------------------------------------------
@@ -171,12 +298,21 @@ this.webappApi = class extends ExtensionAPI {
               }
             }
 
-            // Aucun onglet existant → en ouvrir un nouveau
-            Services.console.logStringMessage("[WebApp] openOrFocusTab: ouverture nouvel onglet");
-            tabmail.openTab("contentTab", {
-              contentPage: url,
-              clickHandler: "return true;"
-            });
+            Services.console.logStringMessage("[WebApp] openOrFocusTab: ouverture nouvel onglet (différé)");
+            win.setTimeout(() => {
+              try {
+                // TB 115+ : paramètre "url"
+                tabmail.openTab("contentTab", { url });
+              } catch(e1) {
+                try {
+                  // Fallback TB <115 : paramètre "contentPage"
+                  tabmail.openTab("contentTab", { contentPage: url, clickHandler: "return true;" });
+                } catch(e2) {
+                  Services.console.logStringMessage("[WebApp] openTab erreur: " + e1 + " / " + e2);
+                }
+              }
+              win.focus();
+            }, 0);
             win.focus();
 
           } catch (e) {
@@ -185,21 +321,48 @@ this.webappApi = class extends ExtensionAPI {
         },
 
         // ----------------------------------------------------------------
+        // loginPegase(user, password)
+        // Login POST silencieux sur Pégase via fetch() chrome-privilégié.
+        // En contexte Experiment API, fetch() bypasse CORS et partage
+        // le jar de cookies avec les onglets Thunderbird.
+        // ----------------------------------------------------------------
+        async loginPegase(user, password) {
+          const LOGIN_URL = "https://pegase.din.developpement-durable.gouv.fr/?_p=external_login";
+          const timezone = "Europe/Paris";
+          const params = "username=" + encodeURIComponent(user)
+            + "&password=" + encodeURIComponent(password)
+            + "&timezone=" + encodeURIComponent(timezone);
+
+          Services.console.logStringMessage("[WebApp] loginPegase: user=" + user);
+
+          try {
+            const response = await fetch(LOGIN_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: params,
+              credentials: "include",
+            });
+            Services.console.logStringMessage("[WebApp] loginPegase: HTTP " + response.status
+              + " url=" + response.url);
+            return response.status;
+          } catch(e) {
+            Services.console.logStringMessage("[WebApp] loginPegase: exception: " + e);
+            return 0;
+          }
+        },
+
+        // ----------------------------------------------------------------
         // loginBnum(user, password)
-        // Réplique exactement le XHR chrome-privilégié de la legacy (webtab.js).
-        // Contexte chrome = même jar de cookies que les onglets TB → session
-        // partagée, sans isolation tierce-partie (Total Cookie Protection).
-        // Encodage ISO-8859-15 comme nsITextToSubURI.ConvertAndEscape legacy.
+        // Login POST MEL (Bnum/Roundcube) via fetch() chrome-privilégié.
+        // Contexte chrome = bypass CORS + même jar de cookies que les onglets TB.
         // ----------------------------------------------------------------
         async loginBnum(user, password) {
           const LOGIN_URL = "https://mel.din.developpement-durable.gouv.fr/?_task=login&_courrielleur=1";
 
-          Services.console.logStringMessage("[WebApp] loginBnum: === DÉMARRAGE ===");
-          Services.console.logStringMessage("[WebApp] loginBnum: user=" + user + " url=" + LOGIN_URL);
+          Services.console.logStringMessage("[WebApp] loginBnum: user=" + user);
 
           // Encodage ISO-8859-15 identique à la legacy
           let encodedUser, encodedPass;
-          let encodingMethod = "ISO-8859-15";
           try {
             const encoder = Cc["@mozilla.org/intl/texttosuburi;1"]
               .getService(Ci.nsITextToSubURI);
@@ -207,76 +370,35 @@ this.webappApi = class extends ExtensionAPI {
             encodedPass = encoder.ConvertAndEscape("ISO-8859-15", password);
             Services.console.logStringMessage("[WebApp] loginBnum: encodage ISO-8859-15 OK");
           } catch (e) {
-            encodingMethod = "UTF-8 (fallback)";
             Services.console.logStringMessage("[WebApp] loginBnum: nsITextToSubURI indisponible, fallback UTF-8: " + e);
             encodedUser = encodeURIComponent(user);
             encodedPass = encodeURIComponent(password);
           }
-          Services.console.logStringMessage("[WebApp] loginBnum: encodingMethod=" + encodingMethod
-            + " encodedUser=" + encodedUser);
 
           const params = "_user=" + encodedUser
             + "&_pass=" + encodedPass
             + "&_task=login&_action=login&_keeplogin=1";
 
-          Services.console.logStringMessage("[WebApp] loginBnum: body envoyé (mdp masqué)="
-            + params.replace(/_pass=[^&]*/i, "_pass=***"));
-
-          return new Promise((resolve) => {
-            try {
-              const xhr = new XMLHttpRequest();
-              xhr.open("POST", LOGIN_URL, true);
-              xhr.withCredentials = true;
-              xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-
-              xhr.onreadystatechange = function () {
-                Services.console.logStringMessage("[WebApp] loginBnum: readyState=" + xhr.readyState
-                  + " status=" + (xhr.readyState >= 2 ? xhr.status : "n/a"));
-
-                if (xhr.readyState === 4) {
-                  Services.console.logStringMessage("[WebApp] loginBnum: === RÉPONSE ===");
-                  Services.console.logStringMessage("[WebApp] loginBnum: status=" + xhr.status
-                    + " statusText=" + xhr.statusText);
-                  Services.console.logStringMessage("[WebApp] loginBnum: responseURL=" + xhr.responseURL);
-
-                  // Afficher tous les headers de la réponse
-                  const allHeaders = xhr.getAllResponseHeaders();
-                  Services.console.logStringMessage("[WebApp] loginBnum: headers réponse:\n" + allHeaders);
-
-                  // Vérifier spécifiquement Set-Cookie
-                  const setCookie = xhr.getResponseHeader("Set-Cookie");
-                  Services.console.logStringMessage("[WebApp] loginBnum: Set-Cookie=" + (setCookie || "(aucun)"));
-
-                  // Afficher les 500 premiers caractères de la réponse pour voir si login réussi
-                  const body = (xhr.responseText || "").substring(0, 500);
-                  Services.console.logStringMessage("[WebApp] loginBnum: responseText (500 chars)=\n" + body);
-
-                  // Vérifier si la réponse indique un échec de login
-                  const failed = xhr.responseText && (
-                    xhr.responseText.includes("Invalid credentials") ||
-                    xhr.responseText.includes("_task=login") ||
-                    xhr.responseText.includes("login_error")
-                  );
-                  Services.console.logStringMessage("[WebApp] loginBnum: login semble "
-                    + (failed ? "ÉCHOUÉ (page de login détectée dans la réponse)" : "OK"));
-
-                  resolve(xhr.status);
-                }
-              };
-
-              xhr.onerror = function () {
-                Services.console.logStringMessage("[WebApp] loginBnum: ERREUR RÉSEAU (onerror)");
-                resolve(0);
-              };
-
-              xhr.send(params);
-              Services.console.logStringMessage("[WebApp] loginBnum: XHR envoyé, attente réponse...");
-
-            } catch (e) {
-              Services.console.logStringMessage("[WebApp] loginBnum: exception générale: " + e);
-              resolve(0);
-            }
-          });
+          try {
+            const response = await fetch(LOGIN_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: params,
+              credentials: "include",
+            });
+            Services.console.logStringMessage("[WebApp] loginBnum: HTTP " + response.status
+              + " url=" + response.url);
+            // Vérifier si login réussi (pas de page login dans la réponse)
+            const body = await response.text();
+            const failed = body && (body.includes("Invalid credentials") ||
+              body.includes("_task=login") || body.includes("login_error"));
+            Services.console.logStringMessage("[WebApp] loginBnum: login "
+              + (failed ? "ÉCHOUÉ" : "OK"));
+            return response.status;
+          } catch(e) {
+            Services.console.logStringMessage("[WebApp] loginBnum: exception: " + e);
+            return 0;
+          }
         }
 
       }
