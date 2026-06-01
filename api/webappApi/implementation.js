@@ -64,7 +64,7 @@ this.webappApi = class extends ExtensionAPI {
           function patchWin(w, label) {
             if (!w || w._pegase_init_done) return;
             w._pegase_init_done = true;
-            const makePatch = (name, orig) => function(url, ...args) {
+            const makePatch = (name, orig) => function (url, ...args) {
               const s = (typeof url === "string") ? url
                 : (url?.href ?? url?.spec ?? String(url));
               if (s && s.startsWith(PEGASE.url_prefix)) {
@@ -77,7 +77,7 @@ this.webappApi = class extends ExtensionAPI {
                     if (creds) {
                       await apiSelf.loginPegase(creds.user, creds.password);
                     }
-                  } catch(e) {
+                  } catch (e) {
                     Services.console.logStringMessage("[WebApp] loginP\u00e9gase erreur: " + e);
                   }
                   await apiSelf.openOrFocusTab(s, PEGASE.url_prefix);
@@ -112,9 +112,9 @@ this.webappApi = class extends ExtensionAPI {
                   try {
                     const ibWin = ib.contentWindow;
                     if (ibWin) patchWin(ibWin, "innerBrowser[" + (ib.id || ib.getAttribute("src") || "?") + "]");
-                  } catch(e) {}
+                  } catch (e) { }
                 }
-              } catch(e) {}
+              } catch (e) { }
             }
           }
 
@@ -132,7 +132,7 @@ this.webappApi = class extends ExtensionAPI {
             const tabmail = win.document.getElementById("tabmail");
             if (tabmail) {
               for (const tabInfo of tabmail.tabInfo) {
-                try { patchBrowserHierarchy(tabInfo); } catch(e) {}
+                try { patchBrowserHierarchy(tabInfo); } catch (e) { }
               }
             }
 
@@ -147,15 +147,17 @@ this.webappApi = class extends ExtensionAPI {
                   if (href.includes("3pane") || href.includes("message") || href.includes("mail")) {
                     patchWin(w, "observed:" + href.split("/").pop());
                   }
-                } catch(e) {}
+                } catch (e) { }
               }
             };
             Services.obs.addObserver(docObserver, "chrome-document-loaded");
-            context.callOnClose({ close() {
-              Services.obs.removeObserver(docObserver, "chrome-document-loaded");
-            }});
+            context.callOnClose({
+              close() {
+                Services.obs.removeObserver(docObserver, "chrome-document-loaded");
+              }
+            });
 
-          } catch(e) {
+          } catch (e) {
             Services.console.logStringMessage("[WebApp] init: ERREUR: " + e + "\n" + e.stack);
           }
         },
@@ -303,11 +305,11 @@ this.webappApi = class extends ExtensionAPI {
               try {
                 // TB 115+ : paramètre "url"
                 tabmail.openTab("contentTab", { url });
-              } catch(e1) {
+              } catch (e1) {
                 try {
                   // Fallback TB <115 : paramètre "contentPage"
                   tabmail.openTab("contentTab", { contentPage: url, clickHandler: "return true;" });
-                } catch(e2) {
+                } catch (e2) {
                   Services.console.logStringMessage("[WebApp] openTab erreur: " + e1 + " / " + e2);
                 }
               }
@@ -345,7 +347,7 @@ this.webappApi = class extends ExtensionAPI {
             Services.console.logStringMessage("[WebApp] loginPegase: HTTP " + response.status
               + " url=" + response.url);
             return response.status;
-          } catch(e) {
+          } catch (e) {
             Services.console.logStringMessage("[WebApp] loginPegase: exception: " + e);
             return 0;
           }
@@ -395,12 +397,30 @@ this.webappApi = class extends ExtensionAPI {
             Services.console.logStringMessage("[WebApp] loginBnum: login "
               + (failed ? "ÉCHOUÉ" : "OK"));
             return response.status;
-          } catch(e) {
+          } catch (e) {
             Services.console.logStringMessage("[WebApp] loginBnum: exception: " + e);
             return 0;
           }
-        }
+        },
 
+        // ----------------------------------------------------------------
+        // openInBrowser(url)
+        // Ouvre une URL dans le navigateur externe par défaut du système.
+        // Utilise nsIExternalProtocolService (API chrome Thunderbird).
+        // ----------------------------------------------------------------
+        openInBrowser(url) {
+          try {
+            const uri = Services.io.newURI(url);
+            const eps = Cc["@mozilla.org/uriloader/external-protocol-service;1"]
+              .getService(Ci.nsIExternalProtocolService);
+            const handlerInfo = eps.getProtocolHandlerInfo("https");
+            handlerInfo.launchWithURI(uri, null);
+            Services.console.logStringMessage("[WebApp] openInBrowser: launchWithURI OK → " + url);
+          } catch (e) {
+            Services.console.logStringMessage("[WebApp] openInBrowser: launchWithURI échec (" + e + ") → fallback ShellExecute");
+          }
+          return;
+        }
       }
     };
   }

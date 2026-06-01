@@ -72,6 +72,19 @@
         }
       ],
       "async": true
+    },
+    {
+      "name": "openInBrowser",
+      "type": "function",
+      "description": "Ouvre une URL dans le navigateur externe par défaut du système (hors Thunderbird).",
+      "parameters": [
+        {
+          "name": "url",
+          "type": "string",
+          "description": "URL à ouvrir dans le navigateur externe."
+        }
+      ],
+      "async": false
     }
   ],
   "events": []

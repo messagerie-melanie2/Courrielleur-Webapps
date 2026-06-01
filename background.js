@@ -166,14 +166,31 @@ async function openBnum() {
 }
 
 // -----------------------------------------------------------------------
+// Ouverture de Bnum Accueil dans le navigateur externe
+// Login via XHR chrome-privilégié, puis ouverture du navigateur système.
+// -----------------------------------------------------------------------
+async function openBnumHome() {
+  console.log("[WebApp] openBnumHome: démarrage");
+
+  // Note : pas de loginBnum() ici — les cookies Thunderbird ne sont pas
+  // partagés avec le navigateur externe (jar séparé). Le login est inutile.
+
+  // Ouvrir l'accueil Bnum dans le navigateur externe (sans _courrielleur=1)
+  const homeUrl = "https://bnum.din.gouv.fr/?_task=mail";
+  console.log("[WebApp] openBnumHome: ouverture navigateur externe →", homeUrl);
+  browser.webappApi.openInBrowser(homeUrl);
+  console.log("[WebApp] openBnumHome: terminé");
+}
+
+
+// -----------------------------------------------------------------------
 // SpacesToolbar — Boutons Pégase et Bnum
 // -----------------------------------------------------------------------
 async function createSpaceButtons() {
-  // --- Bouton BnumHome (accueil Bnum) ---
-  // On pointe vers une page locale (loader) qui demande au background de faire
-  // le login via XHR chrome-privilégié (jar de cookies partagé) AVANT de naviguer
-  // vers ?_task=mail. Cela évite tout usage de _courrielleur=1 qui marquerait
-  // la session Bnum en "mode Courrielleur" et casserait le skin de la boîte mail.
+  // --- Bouton BnumHome (accueil Bnum dans le navigateur externe) ---
+  // Le space pointe vers la page loader locale qui envoie un message
+  // au background. Celui-ci effectue le login silencieux, ouvre le
+  // navigateur système puis ferme l'onglet loader.
   try {
     const spaceBnumHome = await browser.spaces.create("BnumHome",
       browser.runtime.getURL("content/bnum_home_loader.html"), {
@@ -315,6 +332,14 @@ browser.runtime.onMessage.addListener((message, sender) => {
   }
 
   // ---------------------------------------------------------------
+  // "loginBnum" : bnum_login.js demande au background d'effectuer le
+  // login via l'Experiment API (endpoint intranet, pas de restriction 2FA).
+  // ---------------------------------------------------------------
+  if (message?.action === "loginBnum") {
+    return browser.webappApi.loginBnum(message.user, message.password);
+  }
+
+  // ---------------------------------------------------------------
   // "getBnumIntendedUrl" : le content script bnum_login.js demande
   // l'URL cible (accueil ou paramètres) selon quel bouton a été cliqué.
   // L'URL a été mémorisée par tabs.onUpdated avant la redirection login.
@@ -327,6 +352,29 @@ browser.runtime.onMessage.addListener((message, sender) => {
     bnumIntendedUrl.delete(tabId); // usage unique
     console.log("[WebApp] getBnumIntendedUrl tabId=", tabId, "url=", url);
     return Promise.resolve(url);
+  }
+
+  // ---------------------------------------------------------------
+  // "openBnumHome" : la page loader BnumHome demande au background
+  // de faire le login silencieux, d'ouvrir le navigateur externe,
+  // puis de fermer l'onglet loader.
+  // ---------------------------------------------------------------
+  if (message?.action === "openBnumHome") {
+    const tabId = message.tabId ?? sender.tab?.id;
+    console.log("[WebApp] openBnumHome reçu, tabId=", tabId);
+    (async () => {
+      await openBnumHome();
+      // Fermer l'onglet loader une fois le navigateur ouvert
+      if (tabId != null) {
+        try {
+          await browser.tabs.remove(tabId);
+          console.log("[WebApp] openBnumHome: onglet loader fermé (tabId=", tabId, ")");
+        } catch (e) {
+          console.warn("[WebApp] openBnumHome: impossible de fermer l'onglet:", e.message || e);
+        }
+      }
+    })();
+    return; // pas de valeur de retour attendue
   }
 
   // ---------------------------------------------------------------
@@ -396,20 +444,10 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   console.log("[WebApp] tabs.onUpdated tabId:", tabId, "url:", url);
 
   // ---------------------------------------------------------------
-  // Cas 0 : Page loader BnumHome (moz-extension://)
-  // Quand TB ouvre le space BnumHome, il charge cette page locale.
-  // On pré-remplit bnumIntendedUrl avec ?_task=mail, puis on navigue
-  // directement vers ?_task=login (SANS _courrielleur=1).
-  // Le content script bnum_login.js gère le login same-origin et redirige
-  // vers ?_task=mail — sans jamais tagguer la session en mode Courrielleur.
+  // Cas 0 : La page loader BnumHome (moz-extension://) n'est pas
+  // interceptée ici — le JS de la page envoie directement le message
+  // "openBnumHome" au background (login + openInBrowser + fermeture onglet).
   // ---------------------------------------------------------------
-  const BNUM_HOME_LOADER = browser.runtime.getURL("content/bnum_home_loader.html");
-  if (url === BNUM_HOME_LOADER) {
-    console.log("[WebApp] Loader BnumHome détecté tabId=", tabId, "→ pré-remplissage intended + nav login");
-    bnumIntendedUrl.set(tabId, "https://bnum.din.gouv.fr/?_task=mail");
-    await browser.tabs.update(tabId, { url: "https://bnum.din.gouv.fr/?_task=login" });
-    return;
-  }
 
   // Mémoriser toute URL Bnum non-login comme destination après login réussi.
   if (url.startsWith("https://bnum.din.gouv.fr") &&
