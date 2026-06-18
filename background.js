@@ -187,6 +187,34 @@ async function openBnumHome() {
 // SpacesToolbar — Boutons Pégase et Bnum
 // -----------------------------------------------------------------------
 async function createSpaceButtons() {
+  // --- Bouton Pégase (sondage) ---
+  try {
+    // TB 140 : spaces.create avec une URL ouvre l'onglet automatiquement au clic.
+    // spaces.onClicked n'existe pas dans cette version → on intercepte via tabs.onUpdated.
+    const space = await browser.spaces.create("Pegase", PEGASE.href, {
+      title: "Sondage",
+      themeIcons: [
+        {
+          "light": "skin/images/sondage_light.svg",
+          "dark": "skin/images/sondage_dark.svg",
+          "size": 16
+        },
+        {
+          "light": "skin/images/sondage_light.svg",
+          "dark": "skin/images/sondage_dark.svg",
+          "size": 32
+        }
+      ],
+    });
+    console.log("[WebApp] Bouton Pégase créé, space.id:", space.id, "space.name:", space.name);
+  } catch (e) {
+    if (!e.message?.includes("already")) {
+      console.error("[WebApp] Erreur création bouton Pégase (SpacesToolbar):", e);
+    } else {
+      console.log("[WebApp] Space Pegase déjà existant (rechargement extension)");
+    }
+  }
+
   // --- Bouton BnumHome (accueil Bnum dans le navigateur externe) ---
   // Le space pointe vers la page loader locale qui envoie un message
   // au background. Celui-ci effectue le login silencieux, ouvre le
@@ -194,10 +222,10 @@ async function createSpaceButtons() {
   try {
     const spaceBnumHome = await browser.spaces.create("BnumHome",
       browser.runtime.getURL("content/bnum_home_loader.html"), {
-      title: "BNUM",
+      title: "Accéder au Bnum",
       defaultIcons: {
-        "16": "skin/images/bnum.png",
-        "32": "skin/images/bnum.png",
+        "16": "skin/images/bnum.svg",
+        "32": "skin/images/bnum.svg",
       },
     });
     console.log("[WebApp] Bouton Bnum Accueil créé, space.id:", spaceBnumHome.id);
@@ -209,7 +237,7 @@ async function createSpaceButtons() {
     }
   }
 
-  // --- Bouton Bnum (paramètres Bnum) ---
+  // --- Bouton MonCompte Bnum (paramètres Bnum) ---
   // Le space pointe vers BNUM.default_url (inclut _courrielleur=1).
   // Ce paramètre force Bnum à rediriger vers ?_task=login quand la session
   // expire, au lieu d'afficher l'erreur "session expirée" en ligne.
@@ -217,11 +245,19 @@ async function createSpaceButtons() {
   // effectue l'authentification automatique (même-origine → cookies OK).
   try {
     const spaceBnum = await browser.spaces.create("Bnum", BNUM.default_url, {
-      title: BNUM.name,
-      defaultIcons: {
-        "16": "skin/images/bnum_param.png",
-        "32": "skin/images/bnum_param.png",
-      },
+      title: "Mon Compte Bnum",
+      themeIcons: [
+        {
+          "light": "skin/images/moncompte2_light.svg",
+          "dark": "skin/images/moncompte2_dark.svg",
+          "size": 16
+        },
+        {
+          "light": "skin/images/moncompte2_light.svg",
+          "dark": "skin/images/moncompte2_dark.svg",
+          "size": 32
+        }
+      ],
     });
     console.log("[WebApp] Bouton Bnum créé, space.id:", spaceBnum.id);
   } catch (e) {
@@ -229,26 +265,6 @@ async function createSpaceButtons() {
       console.error("[WebApp] Erreur création bouton Bnum:", e);
     } else {
       console.log("[WebApp] Space Bnum déjà existant (rechargement extension)");
-    }
-  }
-
-  // --- Bouton Pégase ---
-  try {
-    // TB 140 : spaces.create avec une URL ouvre l'onglet automatiquement au clic.
-    // spaces.onClicked n'existe pas dans cette version → on intercepte via tabs.onUpdated.
-    const space = await browser.spaces.create("Pegase", PEGASE.href, {
-      title: PEGASE.name,
-      defaultIcons: {
-        "16": "skin/images/pegase.png",
-        "32": "skin/images/pegase.png",
-      },
-    });
-    console.log("[WebApp] Bouton Pégase créé, space.id:", space.id, "space.name:", space.name);
-  } catch (e) {
-    if (!e.message?.includes("already")) {
-      console.error("[WebApp] Erreur création bouton Pégase (SpacesToolbar):", e);
-    } else {
-      console.log("[WebApp] Space Pegase déjà existant (rechargement extension)");
     }
   }
 }
