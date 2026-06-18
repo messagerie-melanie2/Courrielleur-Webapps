@@ -292,6 +292,11 @@ async function initWithRetry(attempt = 1) {
     console.error("[WebApp] webappInit erreur:", e.message || e, e);
   }
 
+  // Délai au premier essai pour laisser Anais/Pauline s'enregistrer au-dessus
+  if (attempt === 1) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
   try {
     await createSpaceButtons();
     _spaceButtonsCreated = true;

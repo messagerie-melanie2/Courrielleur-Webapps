@@ -129,6 +129,17 @@ this.webappApi = class extends ExtensionAPI {
 
             patchWin(win, "mail:3pane");
 
+            // Masquer le bouton de messagerie instantanée (Chat) de la SpacesToolbar
+            try {
+              const chatBtn = win.document.getElementById("chatButton");
+              if (chatBtn) {
+                chatBtn.style.display = "none";
+                Services.console.logStringMessage("[WebApp] Bouton Discussion (chatButton) masqué");
+              }
+            } catch (err) {
+              Services.console.logStringMessage("[WebApp] Erreur lors du masquage de chatButton: " + err);
+            }
+
             const tabmail = win.document.getElementById("tabmail");
             if (tabmail) {
               for (const tabInfo of tabmail.tabInfo) {
@@ -146,6 +157,17 @@ this.webappApi = class extends ExtensionAPI {
                   const href = w.location?.href || "";
                   if (href.includes("3pane") || href.includes("message") || href.includes("mail")) {
                     patchWin(w, "observed:" + href.split("/").pop());
+                  }
+                  if (href.includes("messenger.xhtml") || href.includes("3pane")) {
+                    w.setTimeout(() => {
+                      try {
+                        const chatBtn = w.document?.getElementById("chatButton");
+                        if (chatBtn) {
+                          chatBtn.style.display = "none";
+                          Services.console.logStringMessage("[WebApp] Bouton Discussion masqué sur nouvelle fenêtre");
+                        }
+                      } catch (e) { }
+                    }, 100);
                   }
                 } catch (e) { }
               }
