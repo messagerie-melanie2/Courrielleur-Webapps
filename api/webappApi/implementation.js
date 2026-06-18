@@ -118,6 +118,113 @@ this.webappApi = class extends ExtensionAPI {
             }
           }
 
+          function setupSpacesToolbarObserver(w) {
+            try {
+              const toolbar = w.document?.getElementById("spacesToolbar");
+              if (!toolbar) {
+                Services.console.logStringMessage("[WebApp] setupSpacesToolbarObserver: spacesToolbar introuvable dans cette fenêtre");
+                return;
+              }
+
+              // Déconnecter l'ancien observateur s'il existe pour éviter le détournement par l'ancien code sur reload
+              if (w._webapp_spaces_observer) {
+                try {
+                  w._webapp_spaces_observer.disconnect();
+                  Services.console.logStringMessage("[WebApp] setupSpacesToolbarObserver: Ancien MutationObserver déconnecté avec succès");
+                } catch (e) {
+                  Services.console.logStringMessage("[WebApp] Erreur déconnexion ancien observer: " + e);
+                }
+                w._webapp_spaces_observer = null;
+              }
+
+              const cleanMisplacedButtons = () => {
+                try {
+                  const bottomContainer = w.document.querySelector(".spaces-toolbar-bottom-container");
+                  const addonsContainer = w.document.getElementById("spacesToolbarAddonsContainer") ||
+                                          w.document.querySelector(".spaces-toolbar-container:not(.spaces-toolbar-top-container):not(.spaces-toolbar-bottom-container)");
+                  
+                  if (bottomContainer && addonsContainer) {
+                    const buttons = bottomContainer.querySelectorAll("button");
+                    for (const btn of buttons) {
+                      if (btn.id === "settingsButton" || btn.id === "collapseButton" || btn.id === "assistantPacome") {
+                        continue;
+                      }
+
+                      const id = btn.id || "";
+                      const title = btn.getAttribute("title") || btn.getAttribute("tooltiptext") || "";
+                      const imgSrc = btn.querySelector("img")?.src || "";
+
+                      // Mon Compte Bnum a pour ID de space "Bnum" (exactement), donc son ID de widget contient "Bnum" mais pas "BnumHome".
+                      // Son titre contient "Mon Compte" et son icône contient "moncompte2".
+                      const isMonCompte = (id.includes("Bnum") && !id.includes("BnumHome")) ||
+                                          title.toLowerCase().includes("mon compte") ||
+                                          imgSrc.toLowerCase().includes("moncompte2");
+
+                      Services.console.logStringMessage(`[WebApp DEBUG] Nettoyage - Bouton en bas : ID="${id}" Title="${title}" ImgSrc="${imgSrc}" isMonCompte=${isMonCompte}`);
+
+                      if (!isMonCompte) {
+                        addonsContainer.appendChild(btn);
+                        Services.console.logStringMessage(`[WebApp] Nettoyage : bouton ${id} (${title}) replacé en haut`);
+                      }
+                    }
+                  }
+                } catch (e) {
+                  Services.console.logStringMessage("[WebApp] Erreur lors du nettoyage : " + e);
+                }
+              };
+
+              const moveBnumButton = () => {
+                try {
+                  cleanMisplacedButtons();
+                  const buttons = toolbar.querySelectorAll("button");
+                  
+                  Services.console.logStringMessage(`[WebApp DEBUG] moveBnumButton: parcours de ${buttons.length} boutons`);
+                  
+                  let bnumBtn = null;
+                  for (const btn of buttons) {
+                    const id = btn.id || "";
+                    const title = btn.getAttribute("title") || btn.getAttribute("tooltiptext") || "";
+                    const imgSrc = btn.querySelector("img")?.src || "";
+
+                    const isMonCompte = (id.includes("Bnum") && !id.includes("BnumHome")) ||
+                                        title.toLowerCase().includes("mon compte") ||
+                                        imgSrc.toLowerCase().includes("moncompte2");
+
+                    Services.console.logStringMessage(`[WebApp DEBUG] Bouton analysé : ID="${id}" Title="${title}" ImgSrc="${imgSrc}" isMonCompte=${isMonCompte} Parent="${btn.parentNode?.id || btn.parentNode?.className}"`);
+
+                    if (isMonCompte) {
+                      bnumBtn = btn;
+                      break;
+                    }
+                  }
+                  if (bnumBtn) {
+                    const bottomContainer = w.document.querySelector(".spaces-toolbar-bottom-container");
+                    const settingsBtn = w.document.getElementById("settingsButton");
+                    if (bottomContainer && settingsBtn && bnumBtn.parentNode !== bottomContainer) {
+                      bottomContainer.insertBefore(bnumBtn, settingsBtn);
+                      Services.console.logStringMessage("[WebApp] Observer: Bouton Mon Compte Bnum déplacé en bas");
+                    }
+                  }
+                } catch (e) {
+                  Services.console.logStringMessage("[WebApp] Erreur déplacement bouton: " + e);
+                }
+              };
+
+              // Observer les changements dans le toolbar
+              const observer = new (w.MutationObserver || MutationObserver)(moveBnumButton);
+              observer.observe(toolbar, { childList: true, subtree: true });
+              w._webapp_spaces_observer = observer;
+
+              // Tenter des déplacements immédiats et différés
+              moveBnumButton();
+              w.setTimeout(moveBnumButton, 500);
+              w.setTimeout(moveBnumButton, 1500);
+              w.setTimeout(moveBnumButton, 3000);
+            } catch (err) {
+              Services.console.logStringMessage("[WebApp] Erreur dans setupSpacesToolbarObserver: " + err);
+            }
+          }
+
           try {
             const WM = Cc["@mozilla.org/appshell/window-mediator;1"]
               .getService(Ci.nsIWindowMediator);
@@ -138,6 +245,12 @@ this.webappApi = class extends ExtensionAPI {
               }
             } catch (err) {
               Services.console.logStringMessage("[WebApp] Erreur lors du masquage de chatButton: " + err);
+            }
+
+            try {
+              setupSpacesToolbarObserver(win);
+            } catch (err) {
+              Services.console.logStringMessage("[WebApp] Erreur setup observer principal: " + err);
             }
 
             const tabmail = win.document.getElementById("tabmail");
@@ -166,6 +279,9 @@ this.webappApi = class extends ExtensionAPI {
                           chatBtn.style.display = "none";
                           Services.console.logStringMessage("[WebApp] Bouton Discussion masqué sur nouvelle fenêtre");
                         }
+                      } catch (e) { }
+                      try {
+                        setupSpacesToolbarObserver(w);
                       } catch (e) { }
                     }, 100);
                   }

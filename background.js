@@ -188,6 +188,28 @@ async function openBnumHome() {
 // -----------------------------------------------------------------------
 async function createSpaceButtons() {
 
+  // --- Bouton BnumHome (accueil Bnum dans le navigateur externe) ---
+  // Le space pointe vers la page loader locale qui envoie un message
+  // au background. Celui-ci effectue le login silencieux, ouvre le
+  // navigateur système puis ferme l'onglet loader.
+  try {
+    const spaceBnumHome = await browser.spaces.create("BnumHome",
+      browser.runtime.getURL("content/bnum_home_loader.html"), {
+      title: "Accéder au Bnum",
+      defaultIcons: {
+        "16": "skin/images/bnum.svg",
+        "32": "skin/images/bnum.svg",
+      },
+    });
+    console.log("[WebApp] Bouton Bnum Accueil créé, space.id:", spaceBnumHome.id);
+  } catch (e) {
+    if (!e.message?.includes("already")) {
+      console.error("[WebApp] Erreur création bouton Bnum Accueil:", e);
+    } else {
+      console.log("[WebApp] Space BnumHome déjà existant (rechargement extension)");
+    }
+  }
+
   // --- Bouton PSIN ---
   try {
     const spacePsin = await browser.spaces.create("PSIN", "https://psin.supervision.e2.rie.gouv.fr/", {
@@ -239,28 +261,6 @@ async function createSpaceButtons() {
       console.error("[WebApp] Erreur création bouton Pégase (SpacesToolbar):", e);
     } else {
       console.log("[WebApp] Space Pegase déjà existant (rechargement extension)");
-    }
-  }
-
-  // --- Bouton BnumHome (accueil Bnum dans le navigateur externe) ---
-  // Le space pointe vers la page loader locale qui envoie un message
-  // au background. Celui-ci effectue le login silencieux, ouvre le
-  // navigateur système puis ferme l'onglet loader.
-  try {
-    const spaceBnumHome = await browser.spaces.create("BnumHome",
-      browser.runtime.getURL("content/bnum_home_loader.html"), {
-      title: "Accéder au Bnum",
-      defaultIcons: {
-        "16": "skin/images/bnum.svg",
-        "32": "skin/images/bnum.svg",
-      },
-    });
-    console.log("[WebApp] Bouton Bnum Accueil créé, space.id:", spaceBnumHome.id);
-  } catch (e) {
-    if (!e.message?.includes("already")) {
-      console.error("[WebApp] Erreur création bouton Bnum Accueil:", e);
-    } else {
-      console.log("[WebApp] Space BnumHome déjà existant (rechargement extension)");
     }
   }
 
@@ -320,9 +320,9 @@ async function initWithRetry(attempt = 1) {
   }
 
   // Délai au premier essai pour laisser Anais/Pauline s'enregistrer au-dessus
-  if (attempt === 1) {
+  /*if (attempt === 1) {
     await new Promise(resolve => setTimeout(resolve, 1000));
-  }
+  }*/
 
   try {
     await createSpaceButtons();
