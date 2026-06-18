@@ -187,6 +187,33 @@ async function openBnumHome() {
 // SpacesToolbar — Boutons Pégase et Bnum
 // -----------------------------------------------------------------------
 async function createSpaceButtons() {
+
+  // --- Bouton PSIN ---
+  try {
+    const spacePsin = await browser.spaces.create("PSIN", "https://psin.supervision.e2.rie.gouv.fr/", {
+      title: "Accéder au portail PSIN",
+      themeIcons: [
+        {
+          "light": "skin/images/psin_light.svg",
+          "dark": "skin/images/psin_dark.svg",
+          "size": 16
+        },
+        {
+          "light": "skin/images/psin_light.svg",
+          "dark": "skin/images/psin_dark.svg",
+          "size": 32
+        }
+      ],
+    });
+    console.log("[WebApp] Bouton PSIN créé, space.id:", spacePsin.id);
+  } catch (e) {
+    if (!e.message?.includes("already")) {
+      console.error("[WebApp] Erreur création bouton PSIN:", e);
+    } else {
+      console.log("[WebApp] Space PSIN déjà existant (rechargement extension)");
+    }
+  }
+
   // --- Bouton Pégase (sondage) ---
   try {
     // TB 140 : spaces.create avec une URL ouvre l'onglet automatiquement au clic.
@@ -463,6 +490,20 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
   const url = changeInfo.url;
   console.log("[WebApp] tabs.onUpdated tabId:", tabId, "url:", url);
+
+  // ---------------------------------------------------------------
+  // Interception PSIN -> ouverture dans le navigateur externe
+  // ---------------------------------------------------------------
+  if (url.startsWith("https://psin.supervision.e2.rie.gouv.fr")) {
+    console.log("[WebApp] PSIN détecté -> ouverture externe");
+    try {
+      browser.webappApi.openInBrowser(url);
+      await browser.tabs.remove(tabId);
+    } catch (e) {
+      console.error("[WebApp] Erreur lors de l'ouverture externe ou fermeture onglet PSIN:", e);
+    }
+    return;
+  }
 
   // ---------------------------------------------------------------
   // Cas 0 : La page loader BnumHome (moz-extension://) n'est pas

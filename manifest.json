@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WebApps",
-  "version": "1.6",
+  "version": "1.7",
   "description": "Intégration des applications BNUM dans Thunderbird.",
   "browser_specific_settings": {
     "gecko": {
