@@ -141,8 +141,8 @@ this.webappApi = class extends ExtensionAPI {
                 try {
                   const bottomContainer = w.document.querySelector(".spaces-toolbar-bottom-container");
                   const addonsContainer = w.document.getElementById("spacesToolbarAddonsContainer") ||
-                                          w.document.querySelector(".spaces-toolbar-container:not(.spaces-toolbar-top-container):not(.spaces-toolbar-bottom-container)");
-                  
+                    w.document.querySelector(".spaces-toolbar-container:not(.spaces-toolbar-top-container):not(.spaces-toolbar-bottom-container)");
+
                   if (bottomContainer && addonsContainer) {
                     const buttons = bottomContainer.querySelectorAll("button");
                     for (const btn of buttons) {
@@ -157,10 +157,10 @@ this.webappApi = class extends ExtensionAPI {
                       // Mon Compte Bnum a pour ID de space "Bnum" (exactement), donc son ID de widget contient "Bnum" mais pas "BnumHome".
                       // Son titre contient "Mon Compte" et son icône contient "moncompte2".
                       const isMonCompte = (id.includes("Bnum") && !id.includes("BnumHome")) ||
-                                          title.toLowerCase().includes("mon compte") ||
-                                          imgSrc.toLowerCase().includes("moncompte2");
+                        title.toLowerCase().includes("mon compte") ||
+                        imgSrc.toLowerCase().includes("moncompte2");
 
-                      Services.console.logStringMessage(`[WebApp DEBUG] Nettoyage - Bouton en bas : ID="${id}" Title="${title}" ImgSrc="${imgSrc}" isMonCompte=${isMonCompte}`);
+                      //Services.console.logStringMessage(`[WebApp DEBUG] Nettoyage - Bouton en bas : ID="${id}" Title="${title}" ImgSrc="${imgSrc}" isMonCompte=${isMonCompte}`);
 
                       if (!isMonCompte) {
                         addonsContainer.appendChild(btn);
@@ -177,9 +177,9 @@ this.webappApi = class extends ExtensionAPI {
                 try {
                   cleanMisplacedButtons();
                   const buttons = toolbar.querySelectorAll("button");
-                  
-                  Services.console.logStringMessage(`[WebApp DEBUG] moveBnumButton: parcours de ${buttons.length} boutons`);
-                  
+
+                  //Services.console.logStringMessage(`[WebApp DEBUG] moveBnumButton: parcours de ${buttons.length} boutons`);
+
                   let bnumBtn = null;
                   for (const btn of buttons) {
                     const id = btn.id || "";
@@ -187,10 +187,10 @@ this.webappApi = class extends ExtensionAPI {
                     const imgSrc = btn.querySelector("img")?.src || "";
 
                     const isMonCompte = (id.includes("Bnum") && !id.includes("BnumHome")) ||
-                                        title.toLowerCase().includes("mon compte") ||
-                                        imgSrc.toLowerCase().includes("moncompte2");
+                      title.toLowerCase().includes("mon compte") ||
+                      imgSrc.toLowerCase().includes("moncompte2");
 
-                    Services.console.logStringMessage(`[WebApp DEBUG] Bouton analysé : ID="${id}" Title="${title}" ImgSrc="${imgSrc}" isMonCompte=${isMonCompte} Parent="${btn.parentNode?.id || btn.parentNode?.className}"`);
+                    //Services.console.logStringMessage(`[WebApp DEBUG] Bouton analysé : ID="${id}" Title="${title}" ImgSrc="${imgSrc}" isMonCompte=${isMonCompte} Parent="${btn.parentNode?.id || btn.parentNode?.className}"`);
 
                     if (isMonCompte) {
                       bnumBtn = btn;
