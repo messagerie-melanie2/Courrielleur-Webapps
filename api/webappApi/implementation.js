@@ -137,6 +137,102 @@ this.webappApi = class extends ExtensionAPI {
                 w._webapp_spaces_observer = null;
               }
 
+              // Injection d'une feuille de style spécifique pour synchroniser les icônes de la barre d'espaces
+              // avec le mode d'affichage réel (clair / sombre) de Thunderbird, indépendamment du prefers-color-scheme OS.
+              const STYLE_ID = "webapp-spaces-theme-override";
+              if (!w.document.getElementById(STYLE_ID)) {
+                try {
+                  const styleEl = w.document.createElementNS("http://www.w3.org/1999/xhtml", "style");
+                  styleEl.id = STYLE_ID;
+                  styleEl.textContent = `
+                    :root[data-spaces-theme-mode="dark"] .spaces-addon-button img,
+                    :root[data-spaces-theme-mode="dark"] .spaces-addon-menuitem,
+                    #spacesToolbar[data-theme-mode="dark"] .spaces-addon-button img,
+                    #spacesToolbar[data-theme-mode="dark"] .spaces-addon-menuitem {
+                      content: var(--webextension-toolbar-image-light, inherit) !important;
+                      --menuitem-icon: var(--webextension-toolbar-image-light, inherit) !important;
+                    }
+
+                    :root[data-spaces-theme-mode="light"] .spaces-addon-button img,
+                    :root[data-spaces-theme-mode="light"] .spaces-addon-menuitem,
+                    #spacesToolbar[data-theme-mode="light"] .spaces-addon-button img,
+                    #spacesToolbar[data-theme-mode="light"] .spaces-addon-menuitem {
+                      content: var(--webextension-toolbar-image-dark, inherit) !important;
+                      --menuitem-icon: var(--webextension-toolbar-image-dark, inherit) !important;
+                    }
+                  `;
+                  (w.document.head || w.document.documentElement).appendChild(styleEl);
+                  Services.console.logStringMessage("[WebApp] Style de détection de thème injecté avec succès");
+                } catch (e) {
+                  Services.console.logStringMessage("[WebApp] Erreur injection style de thème: " + e);
+                }
+              }
+
+              const updateToolbarTheme = () => {
+                try {
+                  let isDark = false;
+
+                  // 1. Détection par colorScheme Gecko/CSS sur la barre d'espaces ou la racine
+                  const tbCs = w.getComputedStyle(toolbar)?.colorScheme;
+                  const rootCs = w.getComputedStyle(w.document.documentElement)?.colorScheme;
+                  if (tbCs === "dark" || rootCs === "dark") {
+                    isDark = true;
+                  } else if (tbCs === "light" || rootCs === "light") {
+                    isDark = false;
+                  } else {
+                    // 2. Détection par la luminosité de la couleur de texte / icône native de la SpacesToolbar
+                    // (Thunderbird applique currentColor avec fill/stroke sur ses icônes SVG natives)
+                    const sampleBtn = toolbar.querySelector(".spaces-toolbar-button") || toolbar.querySelector("button");
+                    const sampleEl = sampleBtn || toolbar;
+                    const computedColor = w.getComputedStyle(sampleEl)?.color || "";
+                    const rgbMatch = computedColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                    if (rgbMatch) {
+                      const r = parseInt(rgbMatch[1], 10);
+                      const g = parseInt(rgbMatch[2], 10);
+                      const b = parseInt(rgbMatch[3], 10);
+                      const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+                      isDark = brightness > 128;
+                    } else {
+                      // 3. Fallback sur le media query standard prefers-color-scheme
+                      isDark = w.matchMedia?.("(prefers-color-scheme: dark)")?.matches || false;
+                    }
+                  }
+
+                  const mode = isDark ? "dark" : "light";
+                  if (toolbar.getAttribute("data-theme-mode") !== mode) {
+                    toolbar.setAttribute("data-theme-mode", mode);
+                    w.document.documentElement?.setAttribute("data-spaces-theme-mode", mode);
+                    Services.console.logStringMessage(`[WebApp] Thème spacesToolbar détecté: ${mode}`);
+                  }
+                } catch (e) {
+                  Services.console.logStringMessage("[WebApp] Erreur détection thème: " + e);
+                }
+              };
+
+              // Écouter les changements de thème dynamique
+              if (w._webapp_theme_listener) {
+                try {
+                  w.removeEventListener("windowlwthemeupdate", w._webapp_theme_listener);
+                } catch (e) { }
+                w._webapp_theme_listener = null;
+              }
+              w._webapp_theme_listener = updateToolbarTheme;
+              w.addEventListener("windowlwthemeupdate", updateToolbarTheme);
+
+              if (w._webapp_media_listener && w._webapp_mql?.removeEventListener) {
+                try {
+                  w._webapp_mql.removeEventListener("change", w._webapp_media_listener);
+                } catch (e) { }
+              }
+              try {
+                const mql = w.matchMedia("(prefers-color-scheme: dark)");
+                if (mql?.addEventListener) {
+                  w._webapp_mql = mql;
+                  w._webapp_media_listener = updateToolbarTheme;
+                  mql.addEventListener("change", updateToolbarTheme);
+                }
+              } catch (e) { }
+
               const cleanMisplacedButtons = () => {
                 try {
                   const bottomContainer = w.document.querySelector(".spaces-toolbar-bottom-container");
@@ -175,6 +271,7 @@ this.webappApi = class extends ExtensionAPI {
 
               const moveBnumButton = () => {
                 try {
+                  updateToolbarTheme();
                   cleanMisplacedButtons();
                   const buttons = toolbar.querySelectorAll("button");
 
@@ -215,11 +312,25 @@ this.webappApi = class extends ExtensionAPI {
               observer.observe(toolbar, { childList: true, subtree: true });
               w._webapp_spaces_observer = observer;
 
-              // Tenter des déplacements immédiats et différés
+              // Tenter des déplacements et détections immédiats et différés
+              updateToolbarTheme();
               moveBnumButton();
-              w.setTimeout(moveBnumButton, 500);
-              w.setTimeout(moveBnumButton, 1500);
-              w.setTimeout(moveBnumButton, 3000);
+              w.setTimeout(() => {
+                updateToolbarTheme();
+                moveBnumButton();
+              }, 200);
+              w.setTimeout(() => {
+                updateToolbarTheme();
+                moveBnumButton();
+              }, 500);
+              w.setTimeout(() => {
+                updateToolbarTheme();
+                moveBnumButton();
+              }, 1500);
+              w.setTimeout(() => {
+                updateToolbarTheme();
+                moveBnumButton();
+              }, 3000);
             } catch (err) {
               Services.console.logStringMessage("[WebApp] Erreur dans setupSpacesToolbarObserver: " + err);
             }
@@ -291,7 +402,23 @@ this.webappApi = class extends ExtensionAPI {
             Services.obs.addObserver(docObserver, "chrome-document-loaded");
             context.callOnClose({
               close() {
-                Services.obs.removeObserver(docObserver, "chrome-document-loaded");
+                try {
+                  Services.obs.removeObserver(docObserver, "chrome-document-loaded");
+                } catch (e) { }
+                try {
+                  if (win._webapp_spaces_observer) {
+                    win._webapp_spaces_observer.disconnect();
+                    win._webapp_spaces_observer = null;
+                  }
+                  if (win._webapp_theme_listener) {
+                    win.removeEventListener("windowlwthemeupdate", win._webapp_theme_listener);
+                    win._webapp_theme_listener = null;
+                  }
+                  if (win._webapp_media_listener && win._webapp_mql?.removeEventListener) {
+                    win._webapp_mql.removeEventListener("change", win._webapp_media_listener);
+                    win._webapp_media_listener = null;
+                  }
+                } catch (e) { }
               }
             });
 

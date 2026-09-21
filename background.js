@@ -183,6 +183,42 @@ async function openBnumHome() {
 }
 
 
+// Helper pour créer un espace ou mettre à jour ses propriétés s'il existe déjà
+async function registerOrUpdateSpace(name, url, buttonProperties) {
+  try {
+    const existingSpaces = await browser.spaces.query({ isSelfOwned: true });
+    const existing = existingSpaces?.find(s => s.name === name);
+    if (existing) {
+      const spaceId = existing.id ?? existing.spaceId;
+      console.log(`[WebApp] Space ${name} déjà existant (id: ${spaceId}), mise à jour des propriétés...`);
+      await browser.spaces.update(spaceId, { url }, buttonProperties);
+      console.log(`[WebApp] Space ${name} mis à jour avec succès`);
+      return existing;
+    }
+    const created = await browser.spaces.create(name, url, buttonProperties);
+    console.log(`[WebApp] Space ${name} créé avec succès, id:`, created?.id);
+    return created;
+  } catch (e) {
+    if (e.message?.includes("already exists")) {
+      console.log(`[WebApp] Space ${name} déjà existant lors du create, tentative de mise à jour...`);
+      try {
+        const existingSpaces = await browser.spaces.query({ isSelfOwned: true });
+        const existing = existingSpaces?.find(s => s.name === name);
+        if (existing) {
+          const spaceId = existing.id ?? existing.spaceId;
+          await browser.spaces.update(spaceId, { url }, buttonProperties);
+          console.log(`[WebApp] Space ${name} mis à jour après exception`);
+          return existing;
+        }
+      } catch (updateErr) {
+        console.error(`[WebApp] Erreur lors de la mise à jour de ${name}:`, updateErr);
+      }
+    } else {
+      console.error(`[WebApp] Erreur registerOrUpdateSpace (${name}):`, e);
+    }
+  }
+}
+
 // -----------------------------------------------------------------------
 // SpacesToolbar — Boutons Pégase et Bnum
 // -----------------------------------------------------------------------
@@ -192,77 +228,66 @@ async function createSpaceButtons() {
   // Le space pointe vers la page loader locale qui envoie un message
   // au background. Celui-ci effectue le login silencieux, ouvre le
   // navigateur système puis ferme l'onglet loader.
-  try {
-    const spaceBnumHome = await browser.spaces.create("BnumHome",
-      browser.runtime.getURL("content/bnum_home_loader.html"), {
+  await registerOrUpdateSpace(
+    "BnumHome",
+    browser.runtime.getURL("content/bnum_home_loader.html"),
+    {
       title: "Accéder au Bnum",
       defaultIcons: {
         "16": "skin/images/bnum.svg",
         "32": "skin/images/bnum.svg",
       },
-    });
-    console.log("[WebApp] Bouton Bnum Accueil créé, space.id:", spaceBnumHome.id);
-  } catch (e) {
-    if (!e.message?.includes("already")) {
-      console.error("[WebApp] Erreur création bouton Bnum Accueil:", e);
-    } else {
-      console.log("[WebApp] Space BnumHome déjà existant (rechargement extension)");
     }
-  }
+  );
 
   // --- Bouton PSIN ---
-  try {
-    const spacePsin = await browser.spaces.create("PSIN", "https://psin.supervision.e2.rie.gouv.fr/", {
+  // Note sur themeIcons : dans le moteur WebExtensions de Mozilla (ExtensionParent.sys.mjs),
+  // les propriétés 'light' et 'dark' sont résolues de manière inversée :
+  // lightURL = resolve(dark) (injecté dans --webextension-toolbar-image-light pour le thème sombre)
+  // darkURL = resolve(light) (injecté dans --webextension-toolbar-image-dark pour le thème clair).
+  // Par conséquent, 'dark' doit contenir l'icône claire (_light.svg) et 'light' l'icône sombre (_dark.svg).
+  await registerOrUpdateSpace(
+    "PSIN",
+    "https://psin.supervision.e2.rie.gouv.fr/",
+    {
       title: "Accéder au portail PSIN",
       themeIcons: [
         {
-          "light": "skin/images/psin_light.svg",
-          "dark": "skin/images/psin_dark.svg",
+          "dark": "skin/images/psin_light.svg",
+          "light": "skin/images/psin_dark.svg",
           "size": 16
         },
         {
-          "light": "skin/images/psin_light.svg",
-          "dark": "skin/images/psin_dark.svg",
+          "dark": "skin/images/psin_light.svg",
+          "light": "skin/images/psin_dark.svg",
           "size": 32
         }
       ],
-    });
-    console.log("[WebApp] Bouton PSIN créé, space.id:", spacePsin.id);
-  } catch (e) {
-    if (!e.message?.includes("already")) {
-      console.error("[WebApp] Erreur création bouton PSIN:", e);
-    } else {
-      console.log("[WebApp] Space PSIN déjà existant (rechargement extension)");
     }
-  }
+  );
 
   // --- Bouton Pégase (sondage) ---
-  try {
-    // TB 140 : spaces.create avec une URL ouvre l'onglet automatiquement au clic.
-    // spaces.onClicked n'existe pas dans cette version → on intercepte via tabs.onUpdated.
-    const space = await browser.spaces.create("Pegase", PEGASE.href, {
+  // TB 140+ : spaces.create avec une URL ouvre l'onglet automatiquement au clic.
+  // spaces.onClicked n'existe pas dans cette version → on intercepte via tabs.onUpdated.
+  await registerOrUpdateSpace(
+    "Pegase",
+    PEGASE.href,
+    {
       title: "Sondage",
       themeIcons: [
         {
-          "light": "skin/images/sondage_light.svg",
-          "dark": "skin/images/sondage_dark.svg",
+          "dark": "skin/images/sondage_light.svg",
+          "light": "skin/images/sondage_dark.svg",
           "size": 16
         },
         {
-          "light": "skin/images/sondage_light.svg",
-          "dark": "skin/images/sondage_dark.svg",
+          "dark": "skin/images/sondage_light.svg",
+          "light": "skin/images/sondage_dark.svg",
           "size": 32
         }
       ],
-    });
-    console.log("[WebApp] Bouton Pégase créé, space.id:", space.id, "space.name:", space.name);
-  } catch (e) {
-    if (!e.message?.includes("already")) {
-      console.error("[WebApp] Erreur création bouton Pégase (SpacesToolbar):", e);
-    } else {
-      console.log("[WebApp] Space Pegase déjà existant (rechargement extension)");
     }
-  }
+  );
 
   // --- Bouton MonCompte Bnum (paramètres Bnum) ---
   // Le space pointe vers BNUM.default_url (inclut _courrielleur=1).
@@ -270,30 +295,25 @@ async function createSpaceButtons() {
   // expire, au lieu d'afficher l'erreur "session expirée" en ligne.
   // Le content script bnum_login.js intercepte cette page de login et
   // effectue l'authentification automatique (même-origine → cookies OK).
-  try {
-    const spaceBnum = await browser.spaces.create("Bnum", BNUM.default_url, {
+  await registerOrUpdateSpace(
+    "Bnum",
+    BNUM.default_url,
+    {
       title: "Mon Compte Bnum",
       themeIcons: [
         {
-          "light": "skin/images/moncompte2_light.svg",
-          "dark": "skin/images/moncompte2_dark.svg",
+          "dark": "skin/images/moncompte2_light.svg",
+          "light": "skin/images/moncompte2_dark.svg",
           "size": 16
         },
         {
-          "light": "skin/images/moncompte2_light.svg",
-          "dark": "skin/images/moncompte2_dark.svg",
+          "dark": "skin/images/moncompte2_light.svg",
+          "light": "skin/images/moncompte2_dark.svg",
           "size": 32
         }
       ],
-    });
-    console.log("[WebApp] Bouton Bnum créé, space.id:", spaceBnum.id);
-  } catch (e) {
-    if (!e.message?.includes("already")) {
-      console.error("[WebApp] Erreur création bouton Bnum:", e);
-    } else {
-      console.log("[WebApp] Space Bnum déjà existant (rechargement extension)");
     }
-  }
+  );
 }
 
 // -----------------------------------------------------------------------
