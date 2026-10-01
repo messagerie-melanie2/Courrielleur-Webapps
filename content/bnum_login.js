@@ -56,28 +56,32 @@
   try {
     const intended = await browser.runtime.sendMessage({ action: "getBnumIntendedUrl" });
     if (intended) targetUrl = intended;
-    console.log("[BnumLogin] URL cible →", targetUrl);
+    const isMonCompte = targetUrl.includes("mel_moncompte");
+    console.log(`[BnumLogin] [POST BNUM Mon Compte] URL cible ${isMonCompte ? "(Mon Compte) " : ""}→`, targetUrl);
   } catch (e) {
-    console.warn("[BnumLogin] getBnumIntendedUrl erreur:", e, "— fallback vers", targetUrl);
+    console.warn("[BnumLogin] [POST BNUM Mon Compte] getBnumIntendedUrl erreur:", e, "— fallback vers", targetUrl);
   }
 
   // Login via le background (Experiment API, chrome-privilégié).
   // L'Experiment API utilise l'endpoint intranet mel.din.developpement-durable.gouv.fr
   // qui ne soumet pas à la vérification 2FA "depuis internet" contrairement
   // à un fetch direct depuis le contexte de l'onglet (IP publique).
-  console.log("[BnumLogin] login via background API (Experiment API)");
+  console.log(`[BnumLogin] [POST BNUM Mon Compte] Début du POST login via background API (Experiment API) pour user: ${creds.user}`);
+  const postStartTime = Date.now();
   try {
     const status = await browser.runtime.sendMessage({
       action: "loginBnum",
       user: creds.user,
       password: creds.password,
     });
-    console.log("[BnumLogin] loginBnum via background → HTTP", status);
+    const elapsed = Date.now() - postStartTime;
+    console.log(`[BnumLogin] [POST BNUM Mon Compte] loginBnum via background terminé en ${elapsed}ms → HTTP status: ${status}`);
   } catch (e) {
-    console.warn("[BnumLogin] loginBnum via background erreur:", e);
+    const elapsed = Date.now() - postStartTime;
+    console.warn(`[BnumLogin] [POST BNUM Mon Compte] loginBnum via background erreur après ${elapsed}ms:`, e);
   }
 
   // Rediriger vers la destination prévue
-  console.log("[BnumLogin] redirection →", targetUrl);
+  console.log(`[BnumLogin] [POST BNUM Mon Compte] Redirection vers destination cible → ${targetUrl}`);
   window.location.href = targetUrl;
 })();

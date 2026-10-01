@@ -624,9 +624,12 @@ this.webappApi = class extends ExtensionAPI {
         // Contexte chrome = bypass CORS + même jar de cookies que les onglets TB.
         // ----------------------------------------------------------------
         async loginBnum(user, password) {
-          const LOGIN_URL = "https://mel.din.developpement-durable.gouv.fr/?_task=login&_courrielleur=1";
+          // Appel direct sur bnum.din.gouv.fr pour éviter la redirection cross-domain 307
+          // (developpement-durable.gouv.fr -> din.gouv.fr) qui perd/partitionne les cookies de session.
+          const LOGIN_URL = "https://bnum.din.gouv.fr/?_task=login&_courrielleur=1";
 
-          Services.console.logStringMessage("[WebApp] loginBnum: user=" + user);
+          Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] loginBnum: Début authentification POST pour user=" + user);
+          Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] loginBnum: URL cible POST = " + LOGIN_URL);
 
           // Encodage ISO-8859-15 identique à la legacy
           let encodedUser, encodedPass;
@@ -635,35 +638,110 @@ this.webappApi = class extends ExtensionAPI {
               .getService(Ci.nsITextToSubURI);
             encodedUser = encoder.ConvertAndEscape("ISO-8859-15", user);
             encodedPass = encoder.ConvertAndEscape("ISO-8859-15", password);
-            Services.console.logStringMessage("[WebApp] loginBnum: encodage ISO-8859-15 OK");
+            Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] loginBnum: encodage ISO-8859-15 OK");
           } catch (e) {
-            Services.console.logStringMessage("[WebApp] loginBnum: nsITextToSubURI indisponible, fallback UTF-8: " + e);
+            Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] loginBnum: nsITextToSubURI indisponible, fallback UTF-8: " + e);
             encodedUser = encodeURIComponent(user);
             encodedPass = encodeURIComponent(password);
           }
 
-          const params = "_user=" + encodedUser
+          // Étape 1 : Initialisation de la session Roundcube via un GET préalable.
+          // Roundcube exige qu'un cookie de session (roundcube_sessid) et un jeton CSRF (_token)
+          // soient déjà initialisés AVANT le traitement du POST d'authentification.
+          // Sans ce GET, le premier POST arrive sur une session vide et Roundcube répond "Déconnecté"
+          // (ce qui forçait l'utilisateur à devoir insister au 2e essai quand le cookie était enfin présent).
+          let token = null;
+          try {
+            Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] Étape 1 : Initialisation session Roundcube via GET préalable...");
+            const getResp = await fetch(LOGIN_URL, {
+              method: "GET",
+              credentials: "include",
+            });
+            const getHtml = await getResp.text();
+            const tokenMatch = getHtml.match(/name="_token"\s+value="([^"]+)"/i) || getHtml.match(/_token:\s*'([^']+)'/i);
+            if (tokenMatch) {
+              token = tokenMatch[1];
+              Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] Jeton CSRF _token récupéré avec succès : " + token);
+            } else {
+              Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] Aucun jeton _token trouvé dans le HTML du GET (poursuite sans token)");
+            }
+          } catch (getErr) {
+            Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] Avertissement échec du GET préalable : " + getErr);
+          }
+
+          let params = "_user=" + encodedUser
             + "&_pass=" + encodedPass
             + "&_task=login&_action=login&_keeplogin=1";
+          if (token) {
+            params += "&_token=" + encodeURIComponent(token);
+          }
 
+          const maskedParams = "_user=" + encodedUser + "&_pass=***&_task=login&_action=login&_keeplogin=1" + (token ? "&_token=" + token : "");
+          Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] Étape 2 : Paramètres POST (mdp masqué) = " + maskedParams + " (longueur body: " + params.length + " octets)");
+
+          const startTime = Date.now();
           try {
+            // Utiliser le fetch global de l'Experiment API (le fetch de win/messenger.xhtml est bloqué par le CSP 'default-src chrome:')
+            Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] Envoi de la requête fetch POST...");
+
             const response = await fetch(LOGIN_URL, {
               method: "POST",
               headers: { "Content-Type": "application/x-www-form-urlencoded" },
               body: params,
               credentials: "include",
             });
-            Services.console.logStringMessage("[WebApp] loginBnum: HTTP " + response.status
-              + " url=" + response.url);
-            // Vérifier si login réussi (pas de page login dans la réponse)
+            const elapsed = Date.now() - startTime;
+            Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] loginBnum: Réponse POST reçue en " + elapsed + "ms → HTTP "
+              + response.status + " " + response.statusText + ", url finale = " + response.url);
+            Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] loginBnum: En-têtes réponse → Content-Type: "
+              + (response.headers.get("content-type") || "non défini")
+              + ", Location: " + (response.headers.get("location") || "aucune"));
+
+            // Inspection des cookies enregistrés dans Services.cookies pour bnum.din.gouv.fr
+            try {
+              const cookieMgr = Services.cookies;
+              const cookies = cookieMgr.getCookiesFromHost("bnum.din.gouv.fr", {});
+              const list = [];
+              if (cookies) {
+                if (typeof cookies.hasMoreElements === "function") {
+                  while (cookies.hasMoreElements()) {
+                    const c = cookies.getNext().QueryInterface(Ci.nsICookie);
+                    list.push(`${c.name}=${c.value ? c.value.substring(0, 8) : ""}... (host=${c.host || c.domain}, path=${c.path})`);
+                  }
+                } else {
+                  for (const c of cookies) {
+                    list.push(`${c.name}=${c.value ? c.value.substring(0, 8) : ""}... (host=${c.host || c.domain}, path=${c.path})`);
+                  }
+                }
+              }
+              Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] Cookies stockés pour bnum.din.gouv.fr (" + list.length + ") : " + (list.join(" | ") || "AUCUN"));
+            } catch (cookieErr) {
+              Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] Erreur lecture cookies: " + cookieErr);
+            }
+
+            // Vérifier si le login a réussi :
+            // Ne pas tester _task=login car il peut être présent dans les liens d'une page valide.
+            // On vérifie la présence d'erreurs réelles ou si le champ de mot de passe est encore affiché.
             const body = await response.text();
-            const failed = body && (body.includes("Invalid credentials") ||
-              body.includes("_task=login") || body.includes("login_error"));
-            Services.console.logStringMessage("[WebApp] loginBnum: login "
-              + (failed ? "ÉCHOUÉ" : "OK"));
+            const bodyLength = body ? body.length : 0;
+            const hasInvalidCreds = body && body.includes("Invalid credentials");
+            const hasLoginError = body && (body.includes("login_error") || body.includes("rcmloginerror") || body.includes("mot de passe incorrect"));
+            const hasPasswordField = body && (body.includes('name="_pass"') || body.includes("rcmloginpwd"));
+            const failed = hasInvalidCreds || hasLoginError || hasPasswordField;
+
+            if (failed) {
+              const reasons = [];
+              if (hasInvalidCreds) reasons.push("'Invalid credentials'");
+              if (hasLoginError) reasons.push("erreur de login détectée");
+              if (hasPasswordField) reasons.push("formulaire de mot de passe toujours présent");
+              Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] loginBnum: Formulaire/erreur détecté (" + reasons.join(", ") + "), bodyLength=" + bodyLength);
+            } else {
+              Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] loginBnum: Session authentifiée avec succès (pas de formulaire de login en retour), bodyLength=" + bodyLength);
+            }
             return response.status;
           } catch (e) {
-            Services.console.logStringMessage("[WebApp] loginBnum: exception: " + e);
+            const elapsed = Date.now() - startTime;
+            Services.console.logStringMessage("[WebApp] [POST BNUM Mon Compte] loginBnum: Exception après " + elapsed + "ms: " + (e.stack || e.message || e));
             return 0;
           }
         },

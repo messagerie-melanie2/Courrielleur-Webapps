@@ -17,12 +17,13 @@
 
   // Demander au background : login chrome XHR + redirection
   try {
+    console.log(`[BnumLoader] [POST BNUM Mon Compte] Envoi du message openBnum au background (tabId=${tabId})`);
     await browser.runtime.sendMessage({ action: "openBnum", tabId });
-    console.log("[BnumLoader] message openBnum envoyé");
+    console.log("[BnumLoader] [POST BNUM Mon Compte] Message openBnum envoyé avec succès");
   } catch (e) {
-    console.error("[BnumLoader] sendMessage erreur:", e);
+    console.error("[BnumLoader] [POST BNUM Mon Compte] sendMessage erreur:", e);
     // Fallback : redirection directe sans login
     window.location.href =
-      "https://mel.din.developpement-durable.gouv.fr/?_task=settings&_action=plugin.mel_moncompte&_courrielleur=1";
+      "https://bnum.din.gouv.fr/?_task=settings&_action=plugin.mel_moncompte&_courrielleur=1";
   }
 })();

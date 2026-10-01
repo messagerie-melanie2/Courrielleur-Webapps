@@ -29,6 +29,7 @@ const BNUM = {
   name: "Mon Compte BNUM",
   href_prefix: "https://bnum.din.gouv.fr/",
   external_login_url: "https://bnum.din.gouv.fr/?_task=login&_courrielleur=1",
+  //external_login_url: "https://bnum.din.gouv.fr/?_task=login&_courrielleur=1",
   login_params: "_user=%%username%%&_pass=%%password%%&_task=login&_action=login&_keeplogin=1",
   // Page d'accueil Bnum (bouton accueil)
   home_url: "https://bnum.din.gouv.fr/?_courrielleur=1",
@@ -44,6 +45,9 @@ let pegasePendingUrl = null;
 // Empêche la boucle infinie si le XHR-login et la redirection ne synchronisent
 // pas correctement avec tabs.onUpdated.
 const pegaseLoginInProgress = new Set();
+
+// Guard anti-boucle : tabIds pour lesquels un login Bnum est en cours.
+const bnumLoginInProgress = new Set();
 
 // URL cible mémorisée par tabId avant que Bnum redirige vers login.
 // Permet au content script de savoir où rediriger après login réussi.
@@ -85,25 +89,31 @@ async function loginPegase(creds) {
 // Login POST silencieux sur Bnum (bnum.din.gouv.fr)
 // -----------------------------------------------------------------------
 async function loginBnum(creds) {
-  console.log("[WebApp] loginBnum: user=", creds.user, "→", BNUM.external_login_url);
+  console.log("[WebApp] [POST BNUM Mon Compte] loginBnum: user=", creds.user, "→", BNUM.external_login_url);
 
   const params = BNUM.login_params
     .replace(/%%username%%/g, encodeURIComponent(creds.user))
     .replace(/%%password%%/g, encodeURIComponent(creds.password));
 
-  console.log("[WebApp] loginBnum: body (mdp masqué)=",
+  console.log("[WebApp] [POST BNUM Mon Compte] loginBnum: body (mdp masqué)=",
     params.replace(/_pass=[^&]*/i, "_pass=***"));
 
+  const startTime = Date.now();
   try {
+    console.log("[WebApp] [POST BNUM Mon Compte] loginBnum: envoi de la requête fetch POST...");
     const response = await fetch(BNUM.external_login_url, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params,
     });
-    console.log("[WebApp] loginBnum: HTTP", response.status, "→ finalUrl:", response.url);
+    const elapsed = Date.now() - startTime;
+    console.log(`[WebApp] [POST BNUM Mon Compte] loginBnum: réponse HTTP ${response.status} ${response.statusText} en ${elapsed}ms → finalUrl:`, response.url);
+    const text = await response.text();
+    console.log("[WebApp] [POST BNUM Mon Compte] loginBnum: taille réponse =", text ? text.length : 0);
   } catch (e) {
-    console.warn("[WebApp] loginBnum: erreur fetch:", e.message || e);
+    const elapsed = Date.now() - startTime;
+    console.warn(`[WebApp] [POST BNUM Mon Compte] loginBnum: erreur fetch après ${elapsed}ms:`, e.message || e);
   }
 }
 
@@ -142,27 +152,30 @@ async function openPegase() {
 // (même jar de cookies que les onglets, identique à la legacy webtab.js).
 // -----------------------------------------------------------------------
 async function openBnum() {
-  console.log("[WebApp] openBnum: démarrage");
+  console.log("[WebApp] [POST BNUM Mon Compte] openBnum: démarrage ouverture Mon Compte Bnum");
 
   let creds;
   try {
     creds = await browser.webappApi.getCredentials();
-    console.log("[WebApp] openBnum: getCredentials() →",
+    console.log("[WebApp] [POST BNUM Mon Compte] openBnum: getCredentials() →",
       creds ? `user=${creds.user}, password=${creds.password ? "(ok)" : "(vide)"}` : "null");
   } catch (e) {
-    console.error("[WebApp] openBnum: getCredentials() exception:", e.message || e);
+    console.error("[WebApp] [POST BNUM Mon Compte] openBnum: getCredentials() exception:", e.message || e);
     creds = null;
   }
 
   if (creds) {
     // Login via XHR chrome-privilégié dans l'Experiment API
-    await browser.webappApi.loginBnum(creds.user, creds.password);
+    console.log("[WebApp] [POST BNUM Mon Compte] openBnum: déclenchement du POST login via webappApi.loginBnum...");
+    const status = await browser.webappApi.loginBnum(creds.user, creds.password);
+    console.log("[WebApp] [POST BNUM Mon Compte] openBnum: retour webappApi.loginBnum status HTTP =", status);
   } else {
-    console.warn("[WebApp] openBnum: credentials introuvables, ouverture sans login");
+    console.warn("[WebApp] [POST BNUM Mon Compte] openBnum: credentials introuvables, ouverture sans login");
   }
 
+  console.log("[WebApp] [POST BNUM Mon Compte] openBnum: ouverture/focus onglet vers", BNUM.default_url);
   await browser.webappApi.openOrFocusTab(BNUM.default_url, BNUM.href_prefix);
-  console.log("[WebApp] openBnum: terminé");
+  console.log("[WebApp] [POST BNUM Mon Compte] openBnum: terminé");
 }
 
 // -----------------------------------------------------------------------
@@ -290,14 +303,12 @@ async function createSpaceButtons() {
   );
 
   // --- Bouton MonCompte Bnum (paramètres Bnum) ---
-  // Le space pointe vers BNUM.default_url (inclut _courrielleur=1).
-  // Ce paramètre force Bnum à rediriger vers ?_task=login quand la session
-  // expire, au lieu d'afficher l'erreur "session expirée" en ligne.
-  // Le content script bnum_login.js intercepte cette page de login et
-  // effectue l'authentification automatique (même-origine → cookies OK).
+  // Le space pointe vers bnum_loader.html (page locale avec spinner).
+  // Cela garantit que l'utilisateur voit un écran de chargement propre et élégant
+  // pendant le login POST en arrière-plan, sans JAMAIS voir l'écran "Vous êtes déconnecté".
   await registerOrUpdateSpace(
     "Bnum",
-    BNUM.default_url,
+    browser.runtime.getURL("content/bnum_loader.html"),
     {
       title: "Mon Compte Bnum",
       themeIcons: [
@@ -404,7 +415,19 @@ browser.runtime.onMessage.addListener((message, sender) => {
   // login via l'Experiment API (endpoint intranet, pas de restriction 2FA).
   // ---------------------------------------------------------------
   if (message?.action === "loginBnum") {
-    return browser.webappApi.loginBnum(message.user, message.password);
+    const tabId = sender.tab?.id;
+    console.log(`[WebApp] [POST BNUM Mon Compte] onMessage loginBnum reçu (tabId=${tabId}, user=${message?.user})`);
+    return (async () => {
+      try {
+        console.log(`[WebApp] [POST BNUM Mon Compte] onMessage loginBnum: appel de webappApi.loginBnum...`);
+        const status = await browser.webappApi.loginBnum(message.user, message.password);
+        console.log(`[WebApp] [POST BNUM Mon Compte] onMessage loginBnum: webappApi.loginBnum terminé, status HTTP = ${status}`);
+        return status;
+      } catch (err) {
+        console.error(`[WebApp] [POST BNUM Mon Compte] onMessage loginBnum: exception:`, err?.message || err);
+        throw err;
+      }
+    })();
   }
 
   // ---------------------------------------------------------------
@@ -418,7 +441,8 @@ browser.runtime.onMessage.addListener((message, sender) => {
     // sécurisée si l'URL cible n'a pas été mémorisée (ex: tabs.onUpdated non déclenché).
     const url = bnumIntendedUrl.get(tabId) || BNUM.default_url;
     bnumIntendedUrl.delete(tabId); // usage unique
-    console.log("[WebApp] getBnumIntendedUrl tabId=", tabId, "url=", url);
+    const isMonCompte = url.includes("mel_moncompte");
+    console.log(`[WebApp] [POST BNUM Mon Compte] getBnumIntendedUrl tabId=${tabId} url=${url}${isMonCompte ? " (Page Mon Compte Bnum)" : ""}`);
     return Promise.resolve(url);
   }
 
@@ -452,43 +476,46 @@ browser.runtime.onMessage.addListener((message, sender) => {
   if (message?.action === "openBnum") {
     // Priorité : tabId envoyé par la page (browser.tabs.getCurrent), fallback sender.tab
     const tabId = message.tabId ?? sender.tab?.id;
-    console.log("[WebApp] onMessage openBnum === REÇU ===");
-    console.log("[WebApp] onMessage openBnum: message.tabId=", message.tabId,
+    console.log("[WebApp] [POST BNUM Mon Compte] onMessage openBnum === REÇU ===");
+    console.log("[WebApp] [POST BNUM Mon Compte] onMessage openBnum: message.tabId=", message.tabId,
       "sender.tab?.id=", sender.tab?.id, "tabId utilisé=", tabId);
-    console.log("[WebApp] onMessage openBnum: sender.url=", sender.url);
-    console.log("[WebApp] onMessage openBnum: sender.tab=", JSON.stringify(sender.tab));
+    console.log("[WebApp] [POST BNUM Mon Compte] onMessage openBnum: sender.url=", sender.url);
+    console.log("[WebApp] [POST BNUM Mon Compte] onMessage openBnum: sender.tab=", JSON.stringify(sender.tab));
 
     if (tabId == null) {
-      console.error("[WebApp] openBnum: ABANDON — tabId introuvable");
+      console.error("[WebApp] [POST BNUM Mon Compte] openBnum: ABANDON — tabId introuvable");
       return;
     }
 
     (async () => {
-      console.log("[WebApp] openBnum: getCredentials...");
+      console.log("[WebApp] [POST BNUM Mon Compte] openBnum: getCredentials...");
       let creds;
       try {
         creds = await browser.webappApi.getCredentials();
-        console.log("[WebApp] openBnum: getCredentials() →",
+        console.log("[WebApp] [POST BNUM Mon Compte] openBnum: getCredentials() →",
           creds ? `user=${creds.user}, password=${creds.password ? "(ok, longueur=" + creds.password.length + ")" : "(VIDE)"}` : "NULL");
       } catch (e) {
-        console.error("[WebApp] openBnum: getCredentials() EXCEPTION:", e.message || e);
+        console.error("[WebApp] [POST BNUM Mon Compte] openBnum: getCredentials() EXCEPTION:", e.message || e);
         creds = null;
       }
 
       if (creds) {
-        console.log("[WebApp] openBnum: appel webappApi.loginBnum...");
+        console.log("[WebApp] [POST BNUM Mon Compte] openBnum: appel webappApi.loginBnum (POST login)...");
         const status = await browser.webappApi.loginBnum(creds.user, creds.password);
-        console.log("[WebApp] openBnum: loginBnum retourné status=", status);
+        console.log("[WebApp] [POST BNUM Mon Compte] openBnum: loginBnum retourné status HTTP =", status);
       } else {
-        console.warn("[WebApp] openBnum: SKIP login — credentials null");
+        console.warn("[WebApp] [POST BNUM Mon Compte] openBnum: SKIP login — credentials null");
       }
 
-      console.log("[WebApp] openBnum: browser.tabs.update → tabId=", tabId, "url=", BNUM.default_url);
+      // Laisser un court délai (200ms) pour que le jar de cookies
+      // de Thunderbird synchronise le cookie de session avant la navigation de l'onglet
+      await new Promise(r => setTimeout(r, 200));
+      console.log("[WebApp] [POST BNUM Mon Compte] openBnum: browser.tabs.update → tabId=", tabId, "url=", BNUM.default_url);
       try {
         await browser.tabs.update(tabId, { url: BNUM.default_url });
-        console.log("[WebApp] openBnum: tabs.update OK");
+        console.log("[WebApp] [POST BNUM Mon Compte] openBnum: tabs.update OK");
       } catch (e) {
-        console.error("[WebApp] openBnum: tabs.update ERREUR:", e.message || e);
+        console.error("[WebApp] [POST BNUM Mon Compte] openBnum: tabs.update ERREUR:", e.message || e);
       }
     })();
   }
@@ -534,7 +561,8 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   // Mémoriser toute URL Bnum non-login comme destination après login réussi.
   if (url.startsWith("https://bnum.din.gouv.fr") &&
     !url.includes("_task=login")) {
-    console.log("[WebApp] Bnum destination mémorisée pour tabId", tabId, ":", url);
+    const isMonCompte = url.includes("mel_moncompte");
+    console.log(`[WebApp] [BNUM Mon Compte] destination mémorisée pour tabId ${tabId}: ${url}${isMonCompte ? " (Page Mon Compte Bnum)" : ""}`);
     bnumIntendedUrl.set(tabId, url);
   }
 
@@ -586,9 +614,30 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     return;
   }
 
-  // Note : le login Bnum est géré exclusivement par le content script bnum_login.js
-  // (fetch same-origin depuis le contexte de l'onglet → meilleure gestion des cookies).
-  // Ne PAS dupliquer ici via tabs.onUpdated — cela provoquerait deux tentatives
-  // simultanées et un conflit de session ("session expirée").
+  // ---------------------------------------------------------------
+  // Cas 3 : Page de login Bnum (Mon Compte / Roundcube)
+  // Si un onglet existant se retrouve sur la page de login (ex: session expirée),
+  // on le bascule immédiatement vers bnum_loader.html pour masquer la page "déconnecté"
+  // et effectuer le re-login propre via openBnum.
+  // ---------------------------------------------------------------
+  if (url.startsWith("https://bnum.din.gouv.fr") && url.includes("_task=login")) {
+
+    if (bnumLoginInProgress.has(tabId)) {
+      console.log("[WebApp] [POST BNUM Mon Compte] Login Bnum déjà en cours pour tabId:", tabId, "— ignoré (boucle prévenue)");
+      return;
+    }
+    bnumLoginInProgress.add(tabId);
+
+    console.log("[WebApp] [POST BNUM Mon Compte] Page de login Bnum détectée sur tabId:", tabId, "→ bascule immédiate vers loader pour masquer l'écran");
+
+    try {
+      await browser.tabs.update(tabId, { url: browser.runtime.getURL("content/bnum_loader.html") });
+    } catch (e) {
+      console.error("[WebApp] [POST BNUM Mon Compte] Erreur bascule vers loader:", e.message || e);
+    } finally {
+      setTimeout(() => bnumLoginInProgress.delete(tabId), 5000);
+    }
+    return;
+  }
 
 });
