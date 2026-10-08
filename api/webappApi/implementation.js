@@ -1,4 +1,4 @@
-/*
+﻿/*
  * WebApp2 — Experiment API (contexte chrome privilégié)
  *
  * Fournit :
@@ -118,15 +118,75 @@ this.webappApi = class extends ExtensionAPI {
             }
           }
 
+          function injectThemeOverrideStyle(w) {
+            try {
+              if (!w || !w.document) return;
+              const STYLE_ID = "webapp-spaces-theme-override";
+              if (!w.document.getElementById(STYLE_ID)) {
+                const styleEl = w.document.createElementNS("http://www.w3.org/1999/xhtml", "style");
+                styleEl.id = STYLE_ID;
+                styleEl.textContent = `
+                  /* 1. PAR DÉFAUT (thème clair) : toujours afficher l'icône sombre pour éviter clair sur clair */
+                  .spaces-addon-button img,
+                  .spaces-addon-menuitem {
+                    content: var(--webextension-toolbar-image-dark, inherit) !important;
+                    --menuitem-icon: var(--webextension-toolbar-image-dark, inherit) !important;
+                  }
+
+                  /* 2. THÈME SOMBRE : basculer sur l'icône claire */
+                  :root[lwtheme-brighttext] .spaces-addon-button img,
+                  :root[lwt-tree-brighttext] .spaces-addon-button img,
+                  :root[data-spaces-theme-mode="dark"] .spaces-addon-button img,
+                  #spacesToolbar[data-theme-mode="dark"] .spaces-addon-button img,
+                  :root[lwtheme-brighttext] .spaces-addon-menuitem,
+                  :root[lwt-tree-brighttext] .spaces-addon-menuitem,
+                  :root[data-spaces-theme-mode="dark"] .spaces-addon-menuitem,
+                  #spacesToolbar[data-theme-mode="dark"] .spaces-addon-menuitem {
+                    content: var(--webextension-toolbar-image-light, inherit) !important;
+                    --menuitem-icon: var(--webextension-toolbar-image-light, inherit) !important;
+                  }
+
+                  /* 3. THÈME CLAIR EXPLICITE */
+                  :root[data-spaces-theme-mode="light"] .spaces-addon-button img,
+                  #spacesToolbar[data-theme-mode="light"] .spaces-addon-button img,
+                  :root[data-spaces-theme-mode="light"] .spaces-addon-menuitem,
+                  #spacesToolbar[data-theme-mode="light"] .spaces-addon-menuitem {
+                    content: var(--webextension-toolbar-image-dark, inherit) !important;
+                    --menuitem-icon: var(--webextension-toolbar-image-dark, inherit) !important;
+                  }
+
+                  /* 4. MODE SOMBRE SYSTÈME (OS) si Thunderbird n'impose pas un thème clair */
+                  @media (prefers-color-scheme: dark) {
+                    :root:not([lwtheme]) .spaces-addon-button img,
+                    :root[lwtheme-brighttext] .spaces-addon-button img,
+                    :root:not([lwtheme]) .spaces-addon-menuitem,
+                    :root[lwtheme-brighttext] .spaces-addon-menuitem {
+                      content: var(--webextension-toolbar-image-light, inherit) !important;
+                      --menuitem-icon: var(--webextension-toolbar-image-light, inherit) !important;
+                    }
+                  }
+                `;
+                (w.document.head || w.document.documentElement).appendChild(styleEl);
+                Services.console.logStringMessage("[WebApp] Style de détection de thème injecté avec succès");
+              }
+            } catch (e) {
+              Services.console.logStringMessage("[WebApp] Erreur injection style de thème: " + e);
+            }
+          }
+
           function setupSpacesToolbarObserver(w) {
             try {
-              const toolbar = w.document?.getElementById("spacesToolbar");
+              if (!w || !w.document) return;
+              injectThemeOverrideStyle(w);
+
+              const toolbar = w.document.getElementById("spacesToolbar");
               if (!toolbar) {
-                Services.console.logStringMessage("[WebApp] setupSpacesToolbarObserver: spacesToolbar introuvable dans cette fenêtre");
+                Services.console.logStringMessage("[WebApp] setupSpacesToolbarObserver: spacesToolbar introuvable, nouvelle tentative différée...");
+                w.setTimeout(() => setupSpacesToolbarObserver(w), 250);
                 return;
               }
 
-              // Déconnecter l'ancien observateur s'il existe pour éviter le détournement par l'ancien code sur reload
+              // Déconnecter l'ancien observateur s'il existe pour éviter les conflits
               if (w._webapp_spaces_observer) {
                 try {
                   w._webapp_spaces_observer.disconnect();
@@ -135,37 +195,6 @@ this.webappApi = class extends ExtensionAPI {
                   Services.console.logStringMessage("[WebApp] Erreur déconnexion ancien observer: " + e);
                 }
                 w._webapp_spaces_observer = null;
-              }
-
-              // Injection d'une feuille de style spécifique pour synchroniser les icônes de la barre d'espaces
-              // avec le mode d'affichage réel (clair / sombre) de Thunderbird, indépendamment du prefers-color-scheme OS.
-              const STYLE_ID = "webapp-spaces-theme-override";
-              if (!w.document.getElementById(STYLE_ID)) {
-                try {
-                  const styleEl = w.document.createElementNS("http://www.w3.org/1999/xhtml", "style");
-                  styleEl.id = STYLE_ID;
-                  styleEl.textContent = `
-                    :root[data-spaces-theme-mode="dark"] .spaces-addon-button img,
-                    :root[data-spaces-theme-mode="dark"] .spaces-addon-menuitem,
-                    #spacesToolbar[data-theme-mode="dark"] .spaces-addon-button img,
-                    #spacesToolbar[data-theme-mode="dark"] .spaces-addon-menuitem {
-                      content: var(--webextension-toolbar-image-light, inherit) !important;
-                      --menuitem-icon: var(--webextension-toolbar-image-light, inherit) !important;
-                    }
-
-                    :root[data-spaces-theme-mode="light"] .spaces-addon-button img,
-                    :root[data-spaces-theme-mode="light"] .spaces-addon-menuitem,
-                    #spacesToolbar[data-theme-mode="light"] .spaces-addon-button img,
-                    #spacesToolbar[data-theme-mode="light"] .spaces-addon-menuitem {
-                      content: var(--webextension-toolbar-image-dark, inherit) !important;
-                      --menuitem-icon: var(--webextension-toolbar-image-dark, inherit) !important;
-                    }
-                  `;
-                  (w.document.head || w.document.documentElement).appendChild(styleEl);
-                  Services.console.logStringMessage("[WebApp] Style de détection de thème injecté avec succès");
-                } catch (e) {
-                  Services.console.logStringMessage("[WebApp] Erreur injection style de thème: " + e);
-                }
               }
 
               const updateToolbarTheme = () => {
@@ -247,16 +276,20 @@ this.webappApi = class extends ExtensionAPI {
                       }
 
                       const id = btn.id || "";
-                      const title = btn.getAttribute("title") || btn.getAttribute("tooltiptext") || "";
-                      const imgSrc = btn.querySelector("img")?.src || "";
+                      const title = (btn.title || btn.getAttribute("title") || btn.getAttribute("tooltiptext") || "").toLowerCase();
+                      const imgSrc = (btn.querySelector("img")?.src || "").toLowerCase();
+                      const imgStyle = (btn.querySelector("img")?.getAttribute("style") || "").toLowerCase();
+                      const btnStyle = (btn.getAttribute("style") || "").toLowerCase();
 
                       // Mon Compte Bnum a pour ID de space "Bnum" (exactement), donc son ID de widget contient "Bnum" mais pas "BnumHome".
                       // Son titre contient "Mon Compte" et son icône contient "moncompte2".
-                      const isMonCompte = (id.includes("Bnum") && !id.includes("BnumHome")) ||
-                        title.toLowerCase().includes("mon compte") ||
-                        imgSrc.toLowerCase().includes("moncompte2");
-
-                      //Services.console.logStringMessage(`[WebApp DEBUG] Nettoyage - Bouton en bas : ID="${id}" Title="${title}" ImgSrc="${imgSrc}" isMonCompte=${isMonCompte}`);
+                      const isMonCompte =
+                        (id.toLowerCase().includes("bnum") && !id.toLowerCase().includes("bnumhome")) ||
+                        title.includes("mon compte") ||
+                        title.includes("moncompte") ||
+                        imgSrc.includes("moncompte") ||
+                        imgStyle.includes("moncompte") ||
+                        btnStyle.includes("moncompte");
 
                       if (!isMonCompte) {
                         addonsContainer.appendChild(btn);
@@ -275,19 +308,21 @@ this.webappApi = class extends ExtensionAPI {
                   cleanMisplacedButtons();
                   const buttons = toolbar.querySelectorAll("button");
 
-                  //Services.console.logStringMessage(`[WebApp DEBUG] moveBnumButton: parcours de ${buttons.length} boutons`);
-
                   let bnumBtn = null;
                   for (const btn of buttons) {
                     const id = btn.id || "";
-                    const title = btn.getAttribute("title") || btn.getAttribute("tooltiptext") || "";
-                    const imgSrc = btn.querySelector("img")?.src || "";
+                    const title = (btn.title || btn.getAttribute("title") || btn.getAttribute("tooltiptext") || "").toLowerCase();
+                    const imgSrc = (btn.querySelector("img")?.src || "").toLowerCase();
+                    const imgStyle = (btn.querySelector("img")?.getAttribute("style") || "").toLowerCase();
+                    const btnStyle = (btn.getAttribute("style") || "").toLowerCase();
 
-                    const isMonCompte = (id.includes("Bnum") && !id.includes("BnumHome")) ||
-                      title.toLowerCase().includes("mon compte") ||
-                      imgSrc.toLowerCase().includes("moncompte2");
-
-                    //Services.console.logStringMessage(`[WebApp DEBUG] Bouton analysé : ID="${id}" Title="${title}" ImgSrc="${imgSrc}" isMonCompte=${isMonCompte} Parent="${btn.parentNode?.id || btn.parentNode?.className}"`);
+                    const isMonCompte =
+                      (id.toLowerCase().includes("bnum") && !id.toLowerCase().includes("bnumhome")) ||
+                      title.includes("mon compte") ||
+                      title.includes("moncompte") ||
+                      imgSrc.includes("moncompte") ||
+                      imgStyle.includes("moncompte") ||
+                      btnStyle.includes("moncompte");
 
                     if (isMonCompte) {
                       bnumBtn = btn;
@@ -297,8 +332,12 @@ this.webappApi = class extends ExtensionAPI {
                   if (bnumBtn) {
                     const bottomContainer = w.document.querySelector(".spaces-toolbar-bottom-container");
                     const settingsBtn = w.document.getElementById("settingsButton");
-                    if (bottomContainer && settingsBtn && bnumBtn.parentNode !== bottomContainer) {
-                      bottomContainer.insertBefore(bnumBtn, settingsBtn);
+                    if (bottomContainer && bnumBtn.parentNode !== bottomContainer) {
+                      if (settingsBtn && settingsBtn.parentNode === bottomContainer) {
+                        bottomContainer.insertBefore(bnumBtn, settingsBtn);
+                      } else {
+                        bottomContainer.appendChild(bnumBtn);
+                      }
                       Services.console.logStringMessage("[WebApp] Observer: Bouton Mon Compte Bnum déplacé en bas");
                     }
                   }
@@ -307,9 +346,15 @@ this.webappApi = class extends ExtensionAPI {
                 }
               };
 
+              w._webapp_moveBnum = moveBnumButton;
+
               // Observer les changements dans le toolbar
               const observer = new (w.MutationObserver || MutationObserver)(moveBnumButton);
               observer.observe(toolbar, { childList: true, subtree: true });
+              const addonsContainer = w.document.getElementById("spacesToolbarAddonsContainer");
+              if (addonsContainer && addonsContainer !== toolbar) {
+                observer.observe(addonsContainer, { childList: true, subtree: true });
+              }
               w._webapp_spaces_observer = observer;
 
               // Tenter des déplacements et détections immédiats et différés
@@ -331,48 +376,93 @@ this.webappApi = class extends ExtensionAPI {
                 updateToolbarTheme();
                 moveBnumButton();
               }, 3000);
+              w.setTimeout(() => {
+                updateToolbarTheme();
+                moveBnumButton();
+              }, 6000);
             } catch (err) {
               Services.console.logStringMessage("[WebApp] Erreur dans setupSpacesToolbarObserver: " + err);
             }
           }
 
           try {
+            function initSingleWindow(w) {
+              if (!w) return;
+              if (w._webapp_window_init_done) {
+                if (w._webapp_moveBnum) {
+                  w._webapp_moveBnum();
+                }
+                return;
+              }
+              w._webapp_window_init_done = true;
+
+              patchWin(w, "mail:3pane");
+              injectThemeOverrideStyle(w);
+
+              // Masquer le bouton de messagerie instantanée (Chat) de la SpacesToolbar
+              try {
+                const chatBtn = w.document?.getElementById("chatButton");
+                if (chatBtn) {
+                  chatBtn.style.display = "none";
+                  Services.console.logStringMessage("[WebApp] Bouton Discussion (chatButton) masqué");
+                }
+              } catch (err) {}
+
+              try {
+                setupSpacesToolbarObserver(w);
+              } catch (err) {
+                Services.console.logStringMessage("[WebApp] Erreur setupSpacesToolbarObserver: " + err);
+              }
+
+              const tabmail = w.document?.getElementById("tabmail");
+              if (tabmail?.tabInfo) {
+                for (const tabInfo of tabmail.tabInfo) {
+                  try { patchBrowserHierarchy(tabInfo); } catch (e) {}
+                }
+              }
+            }
+
             const WM = Cc["@mozilla.org/appshell/window-mediator;1"]
               .getService(Ci.nsIWindowMediator);
-            const win = WM.getMostRecentWindow("mail:3pane");
-            if (!win) {
-              Services.console.logStringMessage("[WebApp] init: fenêtre mail:3pane introuvable");
-              return;
-            }
 
-            patchWin(win, "mail:3pane");
-
-            // Masquer le bouton de messagerie instantanée (Chat) de la SpacesToolbar
-            try {
-              const chatBtn = win.document.getElementById("chatButton");
-              if (chatBtn) {
-                chatBtn.style.display = "none";
-                Services.console.logStringMessage("[WebApp] Bouton Discussion (chatButton) masqué");
-              }
-            } catch (err) {
-              Services.console.logStringMessage("[WebApp] Erreur lors du masquage de chatButton: " + err);
+            // Initialiser les fenêtres déjà ouvertes
+            const enumerator = WM.getEnumerator("mail:3pane");
+            let winCount = 0;
+            while (enumerator.hasMoreElements()) {
+              const win = enumerator.getNext();
+              initSingleWindow(win);
+              winCount++;
             }
+            Services.console.logStringMessage(`[WebApp] init: ${winCount} fenêtre(s) mail:3pane initialisée(s) au démarrage`);
 
-            try {
-              setupSpacesToolbarObserver(win);
-            } catch (err) {
-              Services.console.logStringMessage("[WebApp] Erreur setup observer principal: " + err);
-            }
-
-            const tabmail = win.document.getElementById("tabmail");
-            if (tabmail) {
-              for (const tabInfo of tabmail.tabInfo) {
-                try { patchBrowserHierarchy(tabInfo); } catch (e) { }
-              }
-            }
+            // Écouter les fenêtres futures via window-mediator
+            const winListener = {
+              onOpenWindow(xulWin) {
+                try {
+                  const domWin = xulWin.docShell?.domWindow;
+                  if (domWin) {
+                    domWin.addEventListener(
+                      "DOMContentLoaded",
+                      () => {
+                        try {
+                          const href = domWin.location?.href || "";
+                          const winType = domWin.document?.documentElement?.getAttribute("windowtype") || "";
+                          if (winType === "mail:3pane" || href.includes("messenger.xhtml") || href.includes("3pane")) {
+                            domWin.setTimeout(() => initSingleWindow(domWin), 50);
+                          }
+                        } catch (e) {}
+                      },
+                      { once: true }
+                    );
+                  }
+                } catch (e) {}
+              },
+              onCloseWindow() {},
+              onWindowTitleChange() {},
+            };
+            WM.addListener(winListener);
 
             // Observer les futurs chargements de documents chrome
-            // (about:message se recharge à chaque changement de message sélectionné)
             const docObserver = {
               observe(subject, topic, data) {
                 try {
@@ -383,47 +473,46 @@ this.webappApi = class extends ExtensionAPI {
                     patchWin(w, "observed:" + href.split("/").pop());
                   }
                   if (href.includes("messenger.xhtml") || href.includes("3pane")) {
-                    w.setTimeout(() => {
-                      try {
-                        const chatBtn = w.document?.getElementById("chatButton");
-                        if (chatBtn) {
-                          chatBtn.style.display = "none";
-                          Services.console.logStringMessage("[WebApp] Bouton Discussion masqué sur nouvelle fenêtre");
-                        }
-                      } catch (e) { }
-                      try {
-                        setupSpacesToolbarObserver(w);
-                      } catch (e) { }
-                    }, 100);
+                    w.setTimeout(() => initSingleWindow(w), 50);
                   }
-                } catch (e) { }
+                } catch (e) {}
               }
             };
             Services.obs.addObserver(docObserver, "chrome-document-loaded");
+
             context.callOnClose({
               close() {
                 try {
-                  Services.obs.removeObserver(docObserver, "chrome-document-loaded");
-                } catch (e) { }
+                  WM.removeListener(winListener);
+                } catch (e) {}
                 try {
-                  if (win._webapp_spaces_observer) {
-                    win._webapp_spaces_observer.disconnect();
-                    win._webapp_spaces_observer = null;
+                  Services.obs.removeObserver(docObserver, "chrome-document-loaded");
+                } catch (e) {}
+                try {
+                  const enumerator = WM.getEnumerator("mail:3pane");
+                  while (enumerator.hasMoreElements()) {
+                    const w = enumerator.getNext();
+                    if (w._webapp_spaces_observer) {
+                      w._webapp_spaces_observer.disconnect();
+                      w._webapp_spaces_observer = null;
+                    }
+                    if (w._webapp_theme_listener) {
+                      w.removeEventListener("windowlwthemeupdate", w._webapp_theme_listener);
+                      w._webapp_theme_listener = null;
+                    }
+                    if (w._webapp_media_listener && w._webapp_mql?.removeEventListener) {
+                      w._webapp_mql.removeEventListener("change", w._webapp_media_listener);
+                      w._webapp_media_listener = null;
+                    }
+                    w._webapp_window_init_done = false;
                   }
-                  if (win._webapp_theme_listener) {
-                    win.removeEventListener("windowlwthemeupdate", win._webapp_theme_listener);
-                    win._webapp_theme_listener = null;
-                  }
-                  if (win._webapp_media_listener && win._webapp_mql?.removeEventListener) {
-                    win._webapp_mql.removeEventListener("change", win._webapp_media_listener);
-                    win._webapp_media_listener = null;
-                  }
-                } catch (e) { }
+                } catch (e) {}
               }
             });
 
           } catch (e) {
-            Services.console.logStringMessage("[WebApp] init: ERREUR: " + e + "\n" + e.stack);
+            Services.console.logStringMessage("[WebApp] init: ERREUR: " + e + "
+" + e.stack);
           }
         },
 

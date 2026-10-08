@@ -1,4 +1,4 @@
-/*
+﻿/*
  * WebApp2 — Background script
  *
  * Fonctionnement :
@@ -264,6 +264,10 @@ async function createSpaceButtons() {
     "https://psin.supervision.e2.rie.gouv.fr/",
     {
       title: "Accéder au portail PSIN",
+      defaultIcons: {
+        "16": "skin/images/psin_dark.svg",
+        "32": "skin/images/psin_dark.svg",
+      },
       themeIcons: [
         {
           "dark": "skin/images/psin_light.svg",
@@ -287,6 +291,10 @@ async function createSpaceButtons() {
     PEGASE.href,
     {
       title: "Sondage",
+      defaultIcons: {
+        "16": "skin/images/sondage_dark.svg",
+        "32": "skin/images/sondage_dark.svg",
+      },
       themeIcons: [
         {
           "dark": "skin/images/sondage_light.svg",
@@ -311,6 +319,10 @@ async function createSpaceButtons() {
     browser.runtime.getURL("content/bnum_loader.html"),
     {
       title: "Mon Compte Bnum",
+      defaultIcons: {
+        "16": "skin/images/moncompte2_dark.svg",
+        "32": "skin/images/moncompte2_dark.svg",
+      },
       themeIcons: [
         {
           "dark": "skin/images/moncompte2_light.svg",
@@ -359,6 +371,11 @@ async function initWithRetry(attempt = 1) {
     await createSpaceButtons();
     _spaceButtonsCreated = true;
     console.log("[WebApp] Boutons SpacesToolbar créés (tentative", attempt, ")");
+    try {
+      webappInit();
+    } catch (e) {
+      console.error("[WebApp] webappInit post-creation erreur:", e);
+    }
   } catch (e) {
     const delay = Math.min(1000 * attempt, 10000);
     console.warn("[WebApp] createSpaceButtons échec tentative", attempt,
