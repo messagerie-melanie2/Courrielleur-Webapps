@@ -1,4 +1,4 @@
-﻿/*
+/*
  * WebApp2 — Experiment API (contexte chrome privilégié)
  *
  * Fournit :
@@ -28,6 +28,9 @@ const FILELINK_REALM = "filelink-nextcloud-melanie2";
 this.webappApi = class extends ExtensionAPI {
 
   getAPI(context) {
+    let apiInitialized = false;
+    let winListener = null;
+    let docObserver = null;
 
     return {
       webappApi: {
@@ -174,17 +177,23 @@ this.webappApi = class extends ExtensionAPI {
             }
           }
 
-          function setupSpacesToolbarObserver(w) {
+          function setupSpacesToolbarObserver(w, retryCount = 0) {
             try {
-              if (!w || !w.document) return;
+              if (!w || !w.document) return false;
               injectThemeOverrideStyle(w);
 
               const toolbar = w.document.getElementById("spacesToolbar");
               if (!toolbar) {
-                Services.console.logStringMessage("[WebApp] setupSpacesToolbarObserver: spacesToolbar introuvable, nouvelle tentative différée...");
-                w.setTimeout(() => setupSpacesToolbarObserver(w), 250);
-                return;
+                if (retryCount < 40) {
+                  Services.console.logStringMessage(`[WebApp] setupSpacesToolbarObserver: spacesToolbar introuvable (tentative ${retryCount + 1}/40, readyState=${w.document.readyState}, url=${w.location?.href}), nouvelle tentative différée...`);
+                  w.setTimeout(() => setupSpacesToolbarObserver(w, retryCount + 1), 250);
+                } else {
+                  Services.console.logStringMessage("[WebApp] setupSpacesToolbarObserver: Abandon après 40 tentatives, spacesToolbar introuvable.");
+                }
+                return false;
               }
+
+              Services.console.logStringMessage(`[WebApp] setupSpacesToolbarObserver: spacesToolbar trouvé avec succès (url=${w.location?.href})`);
 
               // Déconnecter l'ancien observateur s'il existe pour éviter les conflits
               if (w._webapp_spaces_observer) {
@@ -302,7 +311,10 @@ this.webappApi = class extends ExtensionAPI {
                 }
               };
 
-              const moveBnumButton = () => {
+              let isMoving = false;
+              const moveBnumButton = (source = "direct") => {
+                if (isMoving) return;
+                isMoving = true;
                 try {
                   updateToolbarTheme();
                   cleanMisplacedButtons();
@@ -329,101 +341,137 @@ this.webappApi = class extends ExtensionAPI {
                       break;
                     }
                   }
+
                   if (bnumBtn) {
                     const bottomContainer = w.document.querySelector(".spaces-toolbar-bottom-container");
                     const settingsBtn = w.document.getElementById("settingsButton");
-                    if (bottomContainer && bnumBtn.parentNode !== bottomContainer) {
-                      if (settingsBtn && settingsBtn.parentNode === bottomContainer) {
+                    if (bottomContainer) {
+                      if (bnumBtn.parentNode !== bottomContainer) {
+                        if (settingsBtn && settingsBtn.parentNode === bottomContainer) {
+                          bottomContainer.insertBefore(bnumBtn, settingsBtn);
+                          Services.console.logStringMessage(`[WebApp] moveBnumButton (${source}): Bouton Mon Compte (${bnumBtn.id || bnumBtn.title}) déplacé en bas AVANT #settingsButton`);
+                        } else {
+                          bottomContainer.appendChild(bnumBtn);
+                          Services.console.logStringMessage(`[WebApp] moveBnumButton (${source}): Bouton Mon Compte (${bnumBtn.id || bnumBtn.title}) ajouté à la fin de .spaces-toolbar-bottom-container`);
+                        }
+                      } else if (settingsBtn && settingsBtn.parentNode === bottomContainer && bnumBtn.nextElementSibling !== settingsBtn) {
                         bottomContainer.insertBefore(bnumBtn, settingsBtn);
-                      } else {
-                        bottomContainer.appendChild(bnumBtn);
+                        Services.console.logStringMessage(`[WebApp] moveBnumButton (${source}): Bouton Mon Compte repositionné avant #settingsButton`);
                       }
-                      Services.console.logStringMessage("[WebApp] Observer: Bouton Mon Compte Bnum déplacé en bas");
+                    } else {
+                      Services.console.logStringMessage(`[WebApp] moveBnumButton (${source}): .spaces-toolbar-bottom-container introuvable dans le DOM`);
                     }
+                  } else {
+                    Services.console.logStringMessage(`[WebApp] moveBnumButton (${source}): Bouton Mon Compte non trouvé parmi les ${buttons.length} bouton(s) de spacesToolbar`);
                   }
                 } catch (e) {
-                  Services.console.logStringMessage("[WebApp] Erreur déplacement bouton: " + e);
+                  Services.console.logStringMessage("[WebApp] Erreur déplacement bouton: " + e + "\n" + e.stack);
+                } finally {
+                  isMoving = false;
                 }
               };
 
               w._webapp_moveBnum = moveBnumButton;
 
               // Observer les changements dans le toolbar
-              const observer = new (w.MutationObserver || MutationObserver)(moveBnumButton);
+              const observer = new (w.MutationObserver || MutationObserver)(() => {
+                moveBnumButton("observer");
+              });
               observer.observe(toolbar, { childList: true, subtree: true });
               const addonsContainer = w.document.getElementById("spacesToolbarAddonsContainer");
               if (addonsContainer && addonsContainer !== toolbar) {
                 observer.observe(addonsContainer, { childList: true, subtree: true });
               }
               w._webapp_spaces_observer = observer;
+              Services.console.logStringMessage("[WebApp] setupSpacesToolbarObserver: MutationObserver attaché avec succès sur spacesToolbar");
 
               // Tenter des déplacements et détections immédiats et différés
               updateToolbarTheme();
-              moveBnumButton();
-              w.setTimeout(() => {
-                updateToolbarTheme();
-                moveBnumButton();
-              }, 200);
-              w.setTimeout(() => {
-                updateToolbarTheme();
-                moveBnumButton();
-              }, 500);
-              w.setTimeout(() => {
-                updateToolbarTheme();
-                moveBnumButton();
-              }, 1500);
-              w.setTimeout(() => {
-                updateToolbarTheme();
-                moveBnumButton();
-              }, 3000);
-              w.setTimeout(() => {
-                updateToolbarTheme();
-                moveBnumButton();
-              }, 6000);
+              moveBnumButton("setup_immediat");
+              [200, 500, 1500, 3000, 6000].forEach(delay => {
+                w.setTimeout(() => {
+                  updateToolbarTheme();
+                  moveBnumButton(`setup_timer_${delay}ms`);
+                }, delay);
+              });
+
+              return true;
             } catch (err) {
-              Services.console.logStringMessage("[WebApp] Erreur dans setupSpacesToolbarObserver: " + err);
+              Services.console.logStringMessage("[WebApp] Erreur dans setupSpacesToolbarObserver: " + err + "\n" + err.stack);
+              return false;
             }
           }
 
           try {
             function initSingleWindow(w) {
               if (!w) return;
-              if (w._webapp_window_init_done) {
-                if (w._webapp_moveBnum) {
-                  w._webapp_moveBnum();
-                }
+              const href = w.location?.href || "";
+              const readyState = w.document?.readyState || "unknown";
+
+              if (href && !href.includes("messenger.xhtml") && !href.includes("3pane") && href !== "about:blank") {
                 return;
               }
-              w._webapp_window_init_done = true;
 
-              patchWin(w, "mail:3pane");
-              injectThemeOverrideStyle(w);
+              Services.console.logStringMessage(`[WebApp] initSingleWindow: Fenêtre url=${href}, readyState=${readyState}, init_done=${!!w._webapp_window_init_done}, has_obs=${!!w._webapp_spaces_observer}`);
 
-              // Masquer le bouton de messagerie instantanée (Chat) de la SpacesToolbar
-              try {
-                const chatBtn = w.document?.getElementById("chatButton");
-                if (chatBtn) {
-                  chatBtn.style.display = "none";
-                  Services.console.logStringMessage("[WebApp] Bouton Discussion (chatButton) masqué");
+              // 1. Initialisation générale de la fenêtre (patching) une seule fois
+              if (!w._webapp_window_init_done) {
+                w._webapp_window_init_done = true;
+                Services.console.logStringMessage(`[WebApp] initSingleWindow: Premier patch de la fenêtre (${href})`);
+                patchWin(w, "mail:3pane");
+                injectThemeOverrideStyle(w);
+
+                // Masquer le bouton de messagerie instantanée (Chat) de la SpacesToolbar
+                try {
+                  const chatBtn = w.document?.getElementById("chatButton");
+                  if (chatBtn) {
+                    chatBtn.style.display = "none";
+                    Services.console.logStringMessage("[WebApp] Bouton Discussion (chatButton) masqué");
+                  }
+                } catch (err) {}
+
+                const tabmail = w.document?.getElementById("tabmail");
+                if (tabmail?.tabInfo) {
+                  for (const tabInfo of tabmail.tabInfo) {
+                    try { patchBrowserHierarchy(tabInfo); } catch (e) {}
+                  }
                 }
-              } catch (err) {}
-
-              try {
-                setupSpacesToolbarObserver(w);
-              } catch (err) {
-                Services.console.logStringMessage("[WebApp] Erreur setupSpacesToolbarObserver: " + err);
               }
 
-              const tabmail = w.document?.getElementById("tabmail");
-              if (tabmail?.tabInfo) {
-                for (const tabInfo of tabmail.tabInfo) {
-                  try { patchBrowserHierarchy(tabInfo); } catch (e) {}
+              // 2. Initialisation ou rafraîchissement de la SpacesToolbar
+              if (!w._webapp_spaces_observer) {
+                Services.console.logStringMessage("[WebApp] initSingleWindow: Pas d'observateur actif, lancement de setupSpacesToolbarObserver...");
+                try {
+                  setupSpacesToolbarObserver(w);
+                } catch (err) {
+                  Services.console.logStringMessage("[WebApp] Erreur setupSpacesToolbarObserver: " + err);
+                }
+              } else {
+                Services.console.logStringMessage("[WebApp] initSingleWindow: Observateur déjà actif, appel direct de moveBnumButton...");
+                if (w._webapp_moveBnum) {
+                  w._webapp_moveBnum("initSingleWindow_refresh");
                 }
               }
             }
 
             const WM = Cc["@mozilla.org/appshell/window-mediator;1"]
               .getService(Ci.nsIWindowMediator);
+
+            // Si déjà initialisé au niveau API, rafraîchir les fenêtres existantes sans ré-ajouter les listeners
+            if (apiInitialized) {
+              Services.console.logStringMessage("[WebApp] init: API déjà initialisée, rafraîchissement des fenêtres mail:3pane...");
+              try {
+                const enumerator = WM.getEnumerator("mail:3pane");
+                while (enumerator.hasMoreElements()) {
+                  const win = enumerator.getNext();
+                  initSingleWindow(win);
+                }
+              } catch (e) {
+                Services.console.logStringMessage("[WebApp] init: Erreur rafraîchissement fenêtres: " + e);
+              }
+              return;
+            }
+            apiInitialized = true;
 
             // Initialiser les fenêtres déjà ouvertes
             const enumerator = WM.getEnumerator("mail:3pane");
@@ -433,10 +481,10 @@ this.webappApi = class extends ExtensionAPI {
               initSingleWindow(win);
               winCount++;
             }
-            Services.console.logStringMessage(`[WebApp] init: ${winCount} fenêtre(s) mail:3pane initialisée(s) au démarrage`);
+            Services.console.logStringMessage(`[WebApp] init: ${winCount} fenêtre(s) mail:3pane traitée(s) au démarrage`);
 
             // Écouter les fenêtres futures via window-mediator
-            const winListener = {
+            winListener = {
               onOpenWindow(xulWin) {
                 try {
                   const domWin = xulWin.docShell?.domWindow;
@@ -447,8 +495,9 @@ this.webappApi = class extends ExtensionAPI {
                         try {
                           const href = domWin.location?.href || "";
                           const winType = domWin.document?.documentElement?.getAttribute("windowtype") || "";
+                          Services.console.logStringMessage(`[WebApp] winListener DOMContentLoaded: href=${href}, winType=${winType}`);
                           if (winType === "mail:3pane" || href.includes("messenger.xhtml") || href.includes("3pane")) {
-                            domWin.setTimeout(() => initSingleWindow(domWin), 50);
+                            domWin.setTimeout(() => initSingleWindow(domWin), 100);
                           }
                         } catch (e) {}
                       },
@@ -463,7 +512,7 @@ this.webappApi = class extends ExtensionAPI {
             WM.addListener(winListener);
 
             // Observer les futurs chargements de documents chrome
-            const docObserver = {
+            docObserver = {
               observe(subject, topic, data) {
                 try {
                   const w = subject?.defaultView;
@@ -473,7 +522,8 @@ this.webappApi = class extends ExtensionAPI {
                     patchWin(w, "observed:" + href.split("/").pop());
                   }
                   if (href.includes("messenger.xhtml") || href.includes("3pane")) {
-                    w.setTimeout(() => initSingleWindow(w), 50);
+                    Services.console.logStringMessage(`[WebApp] docObserver chrome-document-loaded: ${href}`);
+                    w.setTimeout(() => initSingleWindow(w), 100);
                   }
                 } catch (e) {}
               }
@@ -482,11 +532,18 @@ this.webappApi = class extends ExtensionAPI {
 
             context.callOnClose({
               close() {
+                apiInitialized = false;
                 try {
-                  WM.removeListener(winListener);
+                  if (winListener) {
+                    WM.removeListener(winListener);
+                    winListener = null;
+                  }
                 } catch (e) {}
                 try {
-                  Services.obs.removeObserver(docObserver, "chrome-document-loaded");
+                  if (docObserver) {
+                    Services.obs.removeObserver(docObserver, "chrome-document-loaded");
+                    docObserver = null;
+                  }
                 } catch (e) {}
                 try {
                   const enumerator = WM.getEnumerator("mail:3pane");
@@ -504,6 +561,7 @@ this.webappApi = class extends ExtensionAPI {
                       w._webapp_mql.removeEventListener("change", w._webapp_media_listener);
                       w._webapp_media_listener = null;
                     }
+                    w._webapp_moveBnum = null;
                     w._webapp_window_init_done = false;
                   }
                 } catch (e) {}
@@ -511,8 +569,7 @@ this.webappApi = class extends ExtensionAPI {
             });
 
           } catch (e) {
-            Services.console.logStringMessage("[WebApp] init: ERREUR: " + e + "
-" + e.stack);
+            Services.console.logStringMessage("[WebApp] init: ERREUR: " + e + "\n" + e.stack);
           }
         },
 
