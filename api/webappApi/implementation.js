@@ -909,8 +909,109 @@ this.webappApi = class extends ExtensionAPI {
             Services.console.logStringMessage("[WebApp] openInBrowser: launchWithURI échec (" + e + ") → fallback ShellExecute");
           }
           return;
+        },
+
+        // ----------------------------------------------------------------
+        // getShortcutsPolicy()
+        // Lit la politique de configuration des raccourcis SpacesToolbar
+        // depuis policies.json (section 3rdparty.Extensions) ou préférences.
+        // Retourne un objet normalisé { bnumHome: bool, psin: bool, pegase: bool, bnum: bool }.
+        // ----------------------------------------------------------------
+        async getShortcutsPolicy() {
+          const config = {
+            bnumHome: true,
+            psin: true,
+            pegase: true,
+            bnum: true,
+          };
+
+          try {
+            let extensionPolicy = null;
+            try {
+              if (Services.policies) {
+                extensionPolicy =
+                  Services.policies.getExtensionPolicy("webapps@developpement-durable.fr") ||
+                  Services.policies.getExtensionPolicy("webapps");
+              }
+            } catch (polErr) {
+              Services.console.logStringMessage("[WebApp] getShortcutsPolicy: exception lecture getExtensionPolicy: " + polErr);
+            }
+
+            Services.console.logStringMessage(
+              "[WebApp] getShortcutsPolicy: extensionPolicy = " + JSON.stringify(extensionPolicy)
+            );
+
+            // Fusionner si une politique 3rdparty est trouvée
+            if (extensionPolicy && typeof extensionPolicy === "object") {
+              const shortcuts = (extensionPolicy.shortcuts && typeof extensionPolicy.shortcuts === "object")
+                ? extensionPolicy.shortcuts
+                : extensionPolicy;
+
+              // Helper pour chercher si une clé est explicitement mise à false
+              const isExplicitlyDisabled = (keys) => {
+                for (const k of keys) {
+                  if (k in shortcuts) {
+                    const val = shortcuts[k];
+                    if (val === false || val === "false" || val === 0 || val === "0") {
+                      return true;
+                    }
+                  }
+                }
+                return false;
+              };
+
+              if (isExplicitlyDisabled(["bnumHome", "bnum_home", "BnumHome", "enable_bnum_home", "enableBnumHome", "bnum-home"])) {
+                config.bnumHome = false;
+              }
+              if (isExplicitlyDisabled(["psin", "PSIN", "enable_psin", "enablePSIN", "enablePsin"])) {
+                config.psin = false;
+              }
+              if (isExplicitlyDisabled(["pegase", "Pegase", "enable_pegase", "enablePegase", "sondage"])) {
+                config.pegase = false;
+              }
+              if (isExplicitlyDisabled(["bnum", "Bnum", "bnum_moncompte", "bnumMoncompte", "moncompte", "monCompte", "enable_bnum", "enableBnum"])) {
+                config.bnum = false;
+              }
+            }
+
+            // Vérification de secours via Services.prefs (si configuré via "Preferences" dans policies.json)
+            const checkPrefDisabled = (prefNames) => {
+              for (const pref of prefNames) {
+                try {
+                  if (Services.prefs.prefHasUserValue(pref) || Services.prefs.prefIsLocked(pref)) {
+                    if (Services.prefs.getBoolPref(pref) === false) {
+                      return true;
+                    }
+                  }
+                } catch (e) {}
+              }
+              return false;
+            };
+
+            if (checkPrefDisabled(["extensions.webapps.shortcut.bnum_home", "extensions.webapps.shortcuts.bnum_home", "extensions.webapps.shortcuts.BnumHome"])) {
+              config.bnumHome = false;
+            }
+            if (checkPrefDisabled(["extensions.webapps.shortcut.psin", "extensions.webapps.shortcuts.psin", "extensions.webapps.shortcuts.PSIN"])) {
+              config.psin = false;
+            }
+            if (checkPrefDisabled(["extensions.webapps.shortcut.pegase", "extensions.webapps.shortcuts.pegase", "extensions.webapps.shortcuts.Pegase"])) {
+              config.pegase = false;
+            }
+            if (checkPrefDisabled(["extensions.webapps.shortcut.bnum", "extensions.webapps.shortcuts.bnum", "extensions.webapps.shortcuts.Bnum"])) {
+              config.bnum = false;
+            }
+
+          } catch (e) {
+            Services.console.logStringMessage("[WebApp] getShortcutsPolicy: erreur globale: " + e);
+          }
+
+          Services.console.logStringMessage(
+            "[WebApp] getShortcutsPolicy: résultat final = " + JSON.stringify(config)
+          );
+          return config;
         }
       }
     };
   }
 };
+

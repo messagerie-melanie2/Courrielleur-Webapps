@@ -1,4 +1,4 @@
-﻿/*
+/*
  * WebApp2 — Background script
  *
  * Fonctionnement :
@@ -232,26 +232,56 @@ async function registerOrUpdateSpace(name, url, buttonProperties) {
   }
 }
 
+// Helper pour supprimer un espace s'il existe (lorsqu'il est désactivé par politique)
+async function removeSpaceIfExists(name) {
+  try {
+    const existingSpaces = await browser.spaces.query({ isSelfOwned: true });
+    const existing = existingSpaces?.find(s => s.name === name);
+    if (existing) {
+      const spaceId = existing.id ?? existing.spaceId;
+      console.log(`[WebApp] Suppression du Space ${name} (id: ${spaceId}) car désactivé par politique...`);
+      await browser.spaces.remove(spaceId);
+      console.log(`[WebApp] Space ${name} supprimé avec succès`);
+    }
+  } catch (e) {
+    console.warn(`[WebApp] Erreur lors de la suppression de l'espace ${name}:`, e.message || e);
+  }
+}
+
 // -----------------------------------------------------------------------
-// SpacesToolbar — Boutons Pégase et Bnum
+// SpacesToolbar — Boutons Pégase et Bnum modulables via policies.json
 // -----------------------------------------------------------------------
 async function createSpaceButtons() {
+  let policy = { bnumHome: true, psin: true, pegase: true, bnum: true };
+  try {
+    if (browser.webappApi?.getShortcutsPolicy) {
+      policy = await browser.webappApi.getShortcutsPolicy();
+    }
+  } catch (e) {
+    console.warn("[WebApp] Impossible de récupérer la politique des raccourcis, valeurs par défaut appliquées:", e);
+  }
+
+  console.log("[WebApp] Application de la configuration des raccourcis SpacesToolbar:", JSON.stringify(policy));
 
   // --- Bouton BnumHome (accueil Bnum dans le navigateur externe) ---
   // Le space pointe vers la page loader locale qui envoie un message
   // au background. Celui-ci effectue le login silencieux, ouvre le
   // navigateur système puis ferme l'onglet loader.
-  await registerOrUpdateSpace(
-    "BnumHome",
-    browser.runtime.getURL("content/bnum_home_loader.html"),
-    {
-      title: "Accéder au Bnum",
-      defaultIcons: {
-        "16": "skin/images/bnum.svg",
-        "32": "skin/images/bnum.svg",
-      },
-    }
-  );
+  if (policy.bnumHome) {
+    await registerOrUpdateSpace(
+      "BnumHome",
+      browser.runtime.getURL("content/bnum_home_loader.html"),
+      {
+        title: "Accéder au Bnum",
+        defaultIcons: {
+          "16": "skin/images/bnum.svg",
+          "32": "skin/images/bnum.svg",
+        },
+      }
+    );
+  } else {
+    await removeSpaceIfExists("BnumHome");
+  }
 
   // --- Bouton PSIN ---
   // Note sur themeIcons : dans le moteur WebExtensions de Mozilla (ExtensionParent.sys.mjs),
@@ -259,84 +289,96 @@ async function createSpaceButtons() {
   // lightURL = resolve(dark) (injecté dans --webextension-toolbar-image-light pour le thème sombre)
   // darkURL = resolve(light) (injecté dans --webextension-toolbar-image-dark pour le thème clair).
   // Par conséquent, 'dark' doit contenir l'icône claire (_light.svg) et 'light' l'icône sombre (_dark.svg).
-  await registerOrUpdateSpace(
-    "PSIN",
-    "https://psin.supervision.e2.rie.gouv.fr/",
-    {
-      title: "Accéder au portail PSIN",
-      defaultIcons: {
-        "16": "skin/images/psin_dark.svg",
-        "32": "skin/images/psin_dark.svg",
-      },
-      themeIcons: [
-        {
-          "dark": "skin/images/psin_light.svg",
-          "light": "skin/images/psin_dark.svg",
-          "size": 16
+  if (policy.psin) {
+    await registerOrUpdateSpace(
+      "PSIN",
+      "https://psin.supervision.e2.rie.gouv.fr/",
+      {
+        title: "Accéder au portail PSIN",
+        defaultIcons: {
+          "16": "skin/images/psin_dark.svg",
+          "32": "skin/images/psin_dark.svg",
         },
-        {
-          "dark": "skin/images/psin_light.svg",
-          "light": "skin/images/psin_dark.svg",
-          "size": 32
-        }
-      ],
-    }
-  );
+        themeIcons: [
+          {
+            "dark": "skin/images/psin_light.svg",
+            "light": "skin/images/psin_dark.svg",
+            "size": 16
+          },
+          {
+            "dark": "skin/images/psin_light.svg",
+            "light": "skin/images/psin_dark.svg",
+            "size": 32
+          }
+        ],
+      }
+    );
+  } else {
+    await removeSpaceIfExists("PSIN");
+  }
 
   // --- Bouton Pégase (sondage) ---
   // TB 140+ : spaces.create avec une URL ouvre l'onglet automatiquement au clic.
   // spaces.onClicked n'existe pas dans cette version → on intercepte via tabs.onUpdated.
-  await registerOrUpdateSpace(
-    "Pegase",
-    PEGASE.href,
-    {
-      title: "Sondage",
-      defaultIcons: {
-        "16": "skin/images/sondage_dark.svg",
-        "32": "skin/images/sondage_dark.svg",
-      },
-      themeIcons: [
-        {
-          "dark": "skin/images/sondage_light.svg",
-          "light": "skin/images/sondage_dark.svg",
-          "size": 16
+  if (policy.pegase) {
+    await registerOrUpdateSpace(
+      "Pegase",
+      PEGASE.href,
+      {
+        title: "Sondage",
+        defaultIcons: {
+          "16": "skin/images/sondage_dark.svg",
+          "32": "skin/images/sondage_dark.svg",
         },
-        {
-          "dark": "skin/images/sondage_light.svg",
-          "light": "skin/images/sondage_dark.svg",
-          "size": 32
-        }
-      ],
-    }
-  );
+        themeIcons: [
+          {
+            "dark": "skin/images/sondage_light.svg",
+            "light": "skin/images/sondage_dark.svg",
+            "size": 16
+          },
+          {
+            "dark": "skin/images/sondage_light.svg",
+            "light": "skin/images/sondage_dark.svg",
+            "size": 32
+          }
+        ],
+      }
+    );
+  } else {
+    await removeSpaceIfExists("Pegase");
+  }
 
   // --- Bouton MonCompte Bnum (paramètres Bnum) ---
   // Le space pointe vers bnum_loader.html (page locale avec spinner).
   // Cela garantit que l'utilisateur voit un écran de chargement propre et élégant
   // pendant le login POST en arrière-plan, sans JAMAIS voir l'écran "Vous êtes déconnecté".
-  await registerOrUpdateSpace(
-    "Bnum",
-    browser.runtime.getURL("content/bnum_loader.html"),
-    {
-      title: "Mon Compte Bnum",
-      defaultIcons: {
-        "16": "skin/images/moncompte2_dark.svg",
-        "32": "skin/images/moncompte2_dark.svg",
-      },
-      themeIcons: [
-        {
-          "dark": "skin/images/moncompte2_light.svg",
-          "light": "skin/images/moncompte2_dark.svg",
-          "size": 16
+  if (policy.bnum) {
+    await registerOrUpdateSpace(
+      "Bnum",
+      browser.runtime.getURL("content/bnum_loader.html"),
+      {
+        title: "Mon Compte Bnum",
+        defaultIcons: {
+          "16": "skin/images/moncompte2_dark.svg",
+          "32": "skin/images/moncompte2_dark.svg",
         },
-        {
-          "dark": "skin/images/moncompte2_light.svg",
-          "light": "skin/images/moncompte2_dark.svg",
-          "size": 32
-        }
-      ],
-    }
-  );
+        themeIcons: [
+          {
+            "dark": "skin/images/moncompte2_light.svg",
+            "light": "skin/images/moncompte2_dark.svg",
+            "size": 16
+          },
+          {
+            "dark": "skin/images/moncompte2_light.svg",
+            "light": "skin/images/moncompte2_dark.svg",
+            "size": 32
+          }
+        ],
+      }
+    );
+  } else {
+    await removeSpaceIfExists("Bnum");
+  }
 }
 
 // -----------------------------------------------------------------------

@@ -85,6 +85,17 @@
         }
       ],
       "async": false
+    },
+    {
+      "name": "getShortcutsPolicy",
+      "type": "function",
+      "description": "Récupère la configuration des raccourcis SpacesToolbar depuis policies.json (section 3rdparty.Extensions) ou préférences verrouillées.",
+      "parameters": [],
+      "async": true,
+      "returns": {
+        "type": "any",
+        "description": "Objet contenant l'état d'activation de chaque raccourci (bnumHome, psin, pegase, bnum)."
+      }
     }
   ],
   "events": []
