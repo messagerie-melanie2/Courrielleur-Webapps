@@ -125,55 +125,196 @@ this.webappApi = class extends ExtensionAPI {
             try {
               if (!w || !w.document) return;
               const STYLE_ID = "webapp-spaces-theme-override";
-              if (!w.document.getElementById(STYLE_ID)) {
-                const styleEl = w.document.createElementNS("http://www.w3.org/1999/xhtml", "style");
+              let styleEl = w.document.getElementById(STYLE_ID);
+              const isNew = !styleEl;
+              if (isNew) {
+                styleEl = w.document.createElementNS("http://www.w3.org/1999/xhtml", "style");
                 styleEl.id = STYLE_ID;
-                styleEl.textContent = `
-                  /* 1. PAR DÉFAUT (thème clair) : toujours afficher l'icône sombre pour éviter clair sur clair */
-                  .spaces-addon-button img,
-                  .spaces-addon-menuitem {
-                    content: var(--webextension-toolbar-image-dark, inherit) !important;
-                    --menuitem-icon: var(--webextension-toolbar-image-dark, inherit) !important;
-                  }
+              }
+              const cssText = `
+                /* 1. PAR DÉFAUT et THÈME CLAIR : toujours afficher l'icône du thème clair (--webextension-toolbar-image-dark = _dark.svg) */
+                :root .spaces-addon-button img,
+                :root[data-spaces-theme-mode="light"] .spaces-addon-button img,
+                #spacesToolbar[data-theme-mode="light"] .spaces-addon-button img {
+                  content: var(--webextension-toolbar-image-dark, var(--webextension-toolbar-image, inherit)) !important;
+                }
 
-                  /* 2. THÈME SOMBRE : basculer sur l'icône claire */
-                  :root[lwtheme-brighttext] .spaces-addon-button img,
-                  :root[lwt-tree-brighttext] .spaces-addon-button img,
-                  :root[data-spaces-theme-mode="dark"] .spaces-addon-button img,
-                  #spacesToolbar[data-theme-mode="dark"] .spaces-addon-button img,
-                  :root[lwtheme-brighttext] .spaces-addon-menuitem,
-                  :root[lwt-tree-brighttext] .spaces-addon-menuitem,
-                  :root[data-spaces-theme-mode="dark"] .spaces-addon-menuitem,
-                  #spacesToolbar[data-theme-mode="dark"] .spaces-addon-menuitem {
-                    content: var(--webextension-toolbar-image-light, inherit) !important;
-                    --menuitem-icon: var(--webextension-toolbar-image-light, inherit) !important;
-                  }
+                :root .spaces-addon-menuitem,
+                :root #spacesToolbarAddonsPopup .spaces-popup-menuitem,
+                :root[data-spaces-theme-mode="light"] .spaces-addon-menuitem,
+                :root[data-spaces-theme-mode="light"] #spacesToolbarAddonsPopup .spaces-popup-menuitem,
+                #spacesToolbar[data-theme-mode="light"] .spaces-addon-menuitem {
+                  list-style-image: var(--webextension-toolbar-image-dark, var(--webextension-toolbar-image, inherit)) !important;
+                  --menuitem-icon: var(--webextension-toolbar-image-dark, var(--webextension-toolbar-image, inherit)) !important;
+                }
 
-                  /* 3. THÈME CLAIR EXPLICITE */
-                  :root[data-spaces-theme-mode="light"] .spaces-addon-button img,
-                  #spacesToolbar[data-theme-mode="light"] .spaces-addon-button img,
-                  :root[data-spaces-theme-mode="light"] .spaces-addon-menuitem,
-                  #spacesToolbar[data-theme-mode="light"] .spaces-addon-menuitem {
-                    content: var(--webextension-toolbar-image-dark, inherit) !important;
-                    --menuitem-icon: var(--webextension-toolbar-image-dark, inherit) !important;
-                  }
+                /* 2. THÈME SOMBRE DÉTECTÉ : basculer sur l'icône du thème sombre (--webextension-toolbar-image-light = _light.svg) */
+                :root[data-spaces-theme-mode="dark"] .spaces-addon-button img,
+                #spacesToolbar[data-theme-mode="dark"] .spaces-addon-button img {
+                  content: var(--webextension-toolbar-image-light, var(--webextension-toolbar-image, inherit)) !important;
+                }
 
-                  /* 4. MODE SOMBRE SYSTÈME (OS) si Thunderbird n'impose pas un thème clair */
-                  @media (prefers-color-scheme: dark) {
-                    :root:not([lwtheme]) .spaces-addon-button img,
-                    :root[lwtheme-brighttext] .spaces-addon-button img,
-                    :root:not([lwtheme]) .spaces-addon-menuitem,
-                    :root[lwtheme-brighttext] .spaces-addon-menuitem {
-                      content: var(--webextension-toolbar-image-light, inherit) !important;
-                      --menuitem-icon: var(--webextension-toolbar-image-light, inherit) !important;
-                    }
-                  }
-                `;
+                :root[data-spaces-theme-mode="dark"] .spaces-addon-menuitem,
+                :root[data-spaces-theme-mode="dark"] #spacesToolbarAddonsPopup .spaces-popup-menuitem,
+                #spacesToolbar[data-theme-mode="dark"] .spaces-addon-menuitem {
+                  list-style-image: var(--webextension-toolbar-image-light, var(--webextension-toolbar-image, inherit)) !important;
+                  --menuitem-icon: var(--webextension-toolbar-image-light, var(--webextension-toolbar-image, inherit)) !important;
+                }
+              `;
+              if (styleEl.textContent !== cssText) {
+                styleEl.textContent = cssText;
+              }
+              if (isNew) {
                 (w.document.head || w.document.documentElement).appendChild(styleEl);
                 Services.console.logStringMessage("[WebApp] Style de détection de thème injecté avec succès");
               }
             } catch (e) {
               Services.console.logStringMessage("[WebApp] Erreur injection style de thème: " + e);
+            }
+          }
+
+          function parseCssColorToRgb(w, cssColor) {
+            if (!cssColor || typeof cssColor !== "string") return null;
+            const trimmed = cssColor.trim();
+            if (!trimmed || trimmed === "transparent") return null;
+
+            try {
+              if (w.InspectorUtils && typeof w.InspectorUtils.colorToRGBA === "function") {
+                const rgba = w.InspectorUtils.colorToRGBA(trimmed, w.document);
+                if (rgba) {
+                  if (typeof rgba.a === "number" && rgba.a <= 0.1) return null;
+                  return { r: rgba.r, g: rgba.g, b: rgba.b, a: rgba.a ?? 1 };
+                }
+              }
+            } catch (_) {}
+
+            const rgbMatch = trimmed.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*[,/]\s*([\d.]+))?\s*\)/i);
+            if (rgbMatch) {
+              const a = rgbMatch[4] !== undefined ? parseFloat(rgbMatch[4]) : 1;
+              if (a <= 0.1) return null;
+              return {
+                r: parseInt(rgbMatch[1], 10),
+                g: parseInt(rgbMatch[2], 10),
+                b: parseInt(rgbMatch[3], 10),
+                a,
+              };
+            }
+
+            const hexMatch = trimmed.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+            if (hexMatch) {
+              let hex = hexMatch[1];
+              if (hex.length === 3) {
+                hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+              }
+              const num = parseInt(hex, 16);
+              return {
+                r: (num >> 16) & 255,
+                g: (num >> 8) & 255,
+                b: num & 255,
+                a: 1,
+              };
+            }
+
+            return null;
+          }
+
+          function getColorLuminance(rgb) {
+            if (!rgb) return null;
+            return (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+          }
+
+          function normalizeSpacesAddonButtonIcons(w) {
+            try {
+              const elements = w.document?.querySelectorAll(
+                ".spaces-addon-button img, .spaces-addon-menuitem, #spacesToolbarAddonsPopup .spaces-popup-menuitem"
+              );
+              if (!elements) return;
+              for (const el of elements) {
+                const darkVar = el.style?.getPropertyValue("--webextension-toolbar-image-dark") || "";
+                const lightVar = el.style?.getPropertyValue("--webextension-toolbar-image-light") || "";
+                if (darkVar.includes("_light.") && lightVar.includes("_dark.")) {
+                  el.style.setProperty("--webextension-toolbar-image-dark", lightVar);
+                  el.style.setProperty("--webextension-toolbar-image-light", darkVar);
+                  el.style.setProperty("--webextension-toolbar-image", lightVar);
+                }
+              }
+            } catch (_) {}
+          }
+
+          function detectSpacesToolbarIsDark(w, toolbar) {
+            try {
+              const doc = w?.document;
+              const root = doc?.documentElement;
+              if (!w || !doc || !root) return false;
+
+              // 1. Personnalisation explicite des couleurs de la spacesToolbar par l'utilisateur
+              const customIconColor =
+                w.gSpacesToolbar?.customizeData?.color ||
+                root.style?.getPropertyValue("--spaces-button-text-color")?.trim();
+              if (customIconColor) {
+                const iconRgb = parseCssColorToRgb(w, customIconColor);
+                if (iconRgb) {
+                  return getColorLuminance(iconRgb) > 128;
+                }
+              }
+
+              const customBgColor =
+                w.gSpacesToolbar?.customizeData?.background ||
+                root.style?.getPropertyValue("--spaces-bg-color")?.trim();
+              if (customBgColor) {
+                const bgRgb = parseCssColorToRgb(w, customBgColor);
+                if (bgRgb) {
+                  return getColorLuminance(bgRgb) < 128;
+                }
+              }
+
+              // 2. Attributs de thème Thunderbird posés de manière synchrone sur :root par LightweightThemeConsumer.sys.mjs
+              const lwtToolbar = root.getAttribute("lwt-toolbar");
+              if (lwtToolbar === "dark") return true;
+              if (lwtToolbar === "light") return false;
+
+              if (root.hasAttribute("lwtheme-brighttext") || root.hasAttribute("lwt-tree-brighttext")) {
+                return true;
+              }
+              if (root.hasAttribute("lwtheme")) {
+                return false;
+              }
+
+              // 3. Préférence Thunderbird browser.theme.toolbar-theme (0 = dark, 1 = light, 2 = system/auto)
+              try {
+                const toolbarThemePref = Services.prefs.getIntPref("browser.theme.toolbar-theme", 2);
+                if (toolbarThemePref === 0) return true;
+                if (toolbarThemePref === 1) return false;
+              } catch (_) {}
+
+              // 4. En mode thème système (auto), le media query du document chrome reflète light-dark(#e8e8e8, #252525)
+              if (typeof w.matchMedia === "function") {
+                return Boolean(w.matchMedia("(prefers-color-scheme: dark)")?.matches);
+              }
+
+              // 5. Fallback sur la couleur de fond réelle de #spacesToolbar ou d'un bouton natif NON actif (:not(.current))
+              if (toolbar && !toolbar.hidden) {
+                const bgRgb = parseCssColorToRgb(w, w.getComputedStyle(toolbar)?.backgroundColor);
+                if (bgRgb) {
+                  return getColorLuminance(bgRgb) < 128;
+                }
+              }
+              if (toolbar) {
+                const inactiveBtn =
+                  toolbar.querySelector(".spaces-toolbar-button:not(.current):not(.spaces-addon-button)") ||
+                  toolbar.querySelector(".spaces-toolbar-button:not(.current)");
+                if (inactiveBtn) {
+                  const fgRgb = parseCssColorToRgb(w, w.getComputedStyle(inactiveBtn)?.color);
+                  if (fgRgb) {
+                    return getColorLuminance(fgRgb) > 128;
+                  }
+                }
+              }
+
+              return false;
+            } catch (e) {
+              Services.console.logStringMessage("[WebApp] Erreur dans detectSpacesToolbarIsDark: " + e);
+              return false;
             }
           }
 
@@ -206,45 +347,36 @@ this.webappApi = class extends ExtensionAPI {
                 w._webapp_spaces_observer = null;
               }
 
+              let isUpdatingTheme = false;
               const updateToolbarTheme = () => {
+                if (isUpdatingTheme) return;
+                isUpdatingTheme = true;
                 try {
-                  let isDark = false;
+                  injectThemeOverrideStyle(w);
+                  normalizeSpacesAddonButtonIcons(w);
 
-                  // 1. Détection par colorScheme Gecko/CSS sur la barre d'espaces ou la racine
-                  const tbCs = w.getComputedStyle(toolbar)?.colorScheme;
-                  const rootCs = w.getComputedStyle(w.document.documentElement)?.colorScheme;
-                  if (tbCs === "dark" || rootCs === "dark") {
-                    isDark = true;
-                  } else if (tbCs === "light" || rootCs === "light") {
-                    isDark = false;
-                  } else {
-                    // 2. Détection par la luminosité de la couleur de texte / icône native de la SpacesToolbar
-                    // (Thunderbird applique currentColor avec fill/stroke sur ses icônes SVG natives)
-                    const sampleBtn = toolbar.querySelector(".spaces-toolbar-button") || toolbar.querySelector("button");
-                    const sampleEl = sampleBtn || toolbar;
-                    const computedColor = w.getComputedStyle(sampleEl)?.color || "";
-                    const rgbMatch = computedColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-                    if (rgbMatch) {
-                      const r = parseInt(rgbMatch[1], 10);
-                      const g = parseInt(rgbMatch[2], 10);
-                      const b = parseInt(rgbMatch[3], 10);
-                      const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-                      isDark = brightness > 128;
-                    } else {
-                      // 3. Fallback sur le media query standard prefers-color-scheme
-                      isDark = w.matchMedia?.("(prefers-color-scheme: dark)")?.matches || false;
-                    }
-                  }
-
+                  const isDark = detectSpacesToolbarIsDark(w, toolbar);
                   const mode = isDark ? "dark" : "light";
-                  if (toolbar.getAttribute("data-theme-mode") !== mode) {
+                  const root = w.document.documentElement;
+                  if (
+                    toolbar.getAttribute("data-theme-mode") !== mode ||
+                    root?.getAttribute("data-spaces-theme-mode") !== mode
+                  ) {
                     toolbar.setAttribute("data-theme-mode", mode);
-                    w.document.documentElement?.setAttribute("data-spaces-theme-mode", mode);
+                    root?.setAttribute("data-spaces-theme-mode", mode);
                     Services.console.logStringMessage(`[WebApp] Thème spacesToolbar détecté: ${mode}`);
                   }
                 } catch (e) {
                   Services.console.logStringMessage("[WebApp] Erreur détection thème: " + e);
+                } finally {
+                  isUpdatingTheme = false;
                 }
+              };
+
+              const scheduleThemeChecks = () => {
+                updateToolbarTheme();
+                w.setTimeout(updateToolbarTheme, 100);
+                w.setTimeout(updateToolbarTheme, 350);
               };
 
               // Écouter les changements de thème dynamique
@@ -254,8 +386,8 @@ this.webappApi = class extends ExtensionAPI {
                 } catch (e) { }
                 w._webapp_theme_listener = null;
               }
-              w._webapp_theme_listener = updateToolbarTheme;
-              w.addEventListener("windowlwthemeupdate", updateToolbarTheme);
+              w._webapp_theme_listener = scheduleThemeChecks;
+              w.addEventListener("windowlwthemeupdate", scheduleThemeChecks);
 
               if (w._webapp_media_listener && w._webapp_mql?.removeEventListener) {
                 try {
@@ -266,8 +398,8 @@ this.webappApi = class extends ExtensionAPI {
                 const mql = w.matchMedia("(prefers-color-scheme: dark)");
                 if (mql?.addEventListener) {
                   w._webapp_mql = mql;
-                  w._webapp_media_listener = updateToolbarTheme;
-                  mql.addEventListener("change", updateToolbarTheme);
+                  w._webapp_media_listener = scheduleThemeChecks;
+                  mql.addEventListener("change", scheduleThemeChecks);
                 }
               } catch (e) { }
 
@@ -373,11 +505,22 @@ this.webappApi = class extends ExtensionAPI {
 
               w._webapp_moveBnum = moveBnumButton;
 
-              // Observer les changements dans le toolbar
+              // Observer les changements dans le toolbar et les attributs de thème sur :root
               const observer = new (w.MutationObserver || MutationObserver)(() => {
                 moveBnumButton("observer");
               });
-              observer.observe(toolbar, { childList: true, subtree: true });
+              if (w.document.documentElement) {
+                observer.observe(w.document.documentElement, {
+                  attributes: true,
+                  attributeFilter: ["style", "lwtheme", "lwtheme-brighttext", "lwt-toolbar", "lwt-tree-brighttext"],
+                });
+              }
+              observer.observe(toolbar, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ["hidden", "style", "data-theme-mode"],
+              });
               const addonsContainer = w.document.getElementById("spacesToolbarAddonsContainer");
               if (addonsContainer && addonsContainer !== toolbar) {
                 observer.observe(addonsContainer, { childList: true, subtree: true });

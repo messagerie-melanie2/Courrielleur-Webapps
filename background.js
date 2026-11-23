@@ -284,11 +284,9 @@ async function createSpaceButtons() {
   }
 
   // --- Bouton PSIN ---
-  // Note sur themeIcons : dans le moteur WebExtensions de Mozilla (ExtensionParent.sys.mjs),
-  // les propriétés 'light' et 'dark' sont résolues de manière inversée :
-  // lightURL = resolve(dark) (injecté dans --webextension-toolbar-image-light pour le thème sombre)
-  // darkURL = resolve(light) (injecté dans --webextension-toolbar-image-dark pour le thème clair).
-  // Par conséquent, 'dark' doit contenir l'icône claire (_light.svg) et 'light' l'icône sombre (_dark.svg).
+  // Note sur themeIcons (conformément à ExtensionParent.sys.mjs et spaces.json) :
+  // - 'dark'  -> --webextension-toolbar-image-dark  (icône foncée _dark.svg utilisée sur fond clair / thème clair)
+  // - 'light' -> --webextension-toolbar-image-light (icône claire _light.svg utilisée sur fond sombre / thème sombre)
   if (policy.psin) {
     await registerOrUpdateSpace(
       "PSIN",
@@ -301,13 +299,13 @@ async function createSpaceButtons() {
         },
         themeIcons: [
           {
-            "dark": "skin/images/psin_light.svg",
-            "light": "skin/images/psin_dark.svg",
+            "dark": "skin/images/psin_dark.svg",
+            "light": "skin/images/psin_light.svg",
             "size": 16
           },
           {
-            "dark": "skin/images/psin_light.svg",
-            "light": "skin/images/psin_dark.svg",
+            "dark": "skin/images/psin_dark.svg",
+            "light": "skin/images/psin_light.svg",
             "size": 32
           }
         ],
@@ -332,13 +330,13 @@ async function createSpaceButtons() {
         },
         themeIcons: [
           {
-            "dark": "skin/images/sondage_light.svg",
-            "light": "skin/images/sondage_dark.svg",
+            "dark": "skin/images/sondage_dark.svg",
+            "light": "skin/images/sondage_light.svg",
             "size": 16
           },
           {
-            "dark": "skin/images/sondage_light.svg",
-            "light": "skin/images/sondage_dark.svg",
+            "dark": "skin/images/sondage_dark.svg",
+            "light": "skin/images/sondage_light.svg",
             "size": 32
           }
         ],
@@ -364,13 +362,13 @@ async function createSpaceButtons() {
         },
         themeIcons: [
           {
-            "dark": "skin/images/moncompte2_light.svg",
-            "light": "skin/images/moncompte2_dark.svg",
+            "dark": "skin/images/moncompte2_dark.svg",
+            "light": "skin/images/moncompte2_light.svg",
             "size": 16
           },
           {
-            "dark": "skin/images/moncompte2_light.svg",
-            "light": "skin/images/moncompte2_dark.svg",
+            "dark": "skin/images/moncompte2_dark.svg",
+            "light": "skin/images/moncompte2_light.svg",
             "size": 32
           }
         ],
